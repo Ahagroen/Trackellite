@@ -1,0 +1,17 @@
+[package]
+name = "orbit-track"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chrono = "0.4.41"
+color-eyre = "0.6.4"
+crossterm = "0.29.0"
+directories = "6.0.0"
+dotenv = "0.15.0"
+lazy_static = "1.5.0"
+ratatui = "0.29.0"
+sky_track = {path = "../sky_track"}
+tracing = "0.1.41"
+tracing-error = "0.2.1"
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
