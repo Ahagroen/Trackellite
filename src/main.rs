@@ -1,4 +1,5 @@
-use app::{handle_event, update};
+use app::{get_tle_cache, handle_event, update};
+use arboard::Clipboard;
 use color_eyre::Result;
 use ratatui::widgets::ListState;
 use sky_track::Satellite;
@@ -13,14 +14,6 @@ fn main() -> Result<()> {
     initialize_logging()?;
     let mut terminal = ratatui::init();
     let mut model = Model::default();
-    model
-        .sat_config
-        .satellite_list
-        .push(Satellite::new_from_tle(
-            "ISS (ZARYA)
-1 25544U 98067A   25124.17583429  .00010980  00000+0  20479-3 0  9995
-2 25544  51.6364 165.0572 0002347  78.0135  27.5001 15.49334428508330",
-        ));
     info!("Loaded Model");
     while !model.exit {
         terminal.draw(|f| view(&mut model, f))?;
@@ -32,18 +25,78 @@ fn main() -> Result<()> {
     ratatui::restore();
     Ok(())
 }
+enum SatList {
+    Up,
+    Down,
+    Select,
+    CopyTLE,
+    FetchTLE,
+    AddSatellite,
+    UpdateMessage(CurrentMsgSatSel),
+}
+enum AddSatMsg {
+    StartEditing,
+    StopEditing,
+    ChangeSelection,
+    LetterTyped(String),
+    Backspace,
+}
+#[derive(PartialEq, Debug)]
+enum AddSatSel {
+    NoradID,
+    TLEBox,
+}
+struct AddSatState {
+    selected: AddSatSel,
+    text: String,
+    editing: bool,
+}
+impl Default for AddSatState {
+    fn default() -> Self {
+        AddSatState {
+            selected: AddSatSel::NoradID,
+            text: String::default(),
+            editing: false,
+        }
+    }
+}
 enum Message {
     Close,
     ToggleSatConfig,
-    AddSatellite,  //Only in SatConfig
-    SatListUp,     //Only in SatConfig
-    SatListDown,   //Only in SatConfig
-    SatListSelect, //Only in SatConfig
+    SatListMessage(SatList),
+    AddSatMessage(AddSatMsg),
 }
-#[derive(Default)]
+
+struct CurrentMsgSatSel {
+    error: bool,
+    text: String,
+}
+
 struct SatSelection {
     satellite_list: Vec<Satellite>,
     list_state: ListState,
+    clipboard: Clipboard,
+    current_message: CurrentMsgSatSel,
+    add_sat: AddSatState,
+}
+impl Default for SatSelection {
+    fn default() -> Self {
+        let cached_tles = get_tle_cache().unwrap();
+        let mut satellites = vec![];
+        for i in cached_tles.values() {
+            satellites.push(Satellite::new_from_tle(i.as_str().unwrap()));
+        }
+        SatSelection {
+            satellite_list: vec![],
+            list_state: ListState::default(),
+            clipboard: Clipboard::new().expect("Unable to access clipboard"),
+            current_message: CurrentMsgSatSel {
+                error: false,
+                text: "".to_string(),
+            },
+            add_sat: AddSatState::default(),
+        }
+    }
 }
 #[derive(Debug, PartialEq)]
 enum AppState {
@@ -51,6 +104,7 @@ enum AppState {
     SatSelect,
     SatAddition,
 }
+
 struct Model {
     current_satellite: Option<Satellite>,
     sat_config: SatSelection,
