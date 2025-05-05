@@ -1,14 +1,17 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::{
+    borrow::BorrowMut,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
-use color_eyre::Result;
+use color_eyre::{Result, owo_colors::OwoColorize};
 use ratatui::{
     Frame,
     crossterm::event::{self, Event, KeyCode},
     layout::{Constraint, Flex, Layout, Rect},
-    style::{Color, Style, Stylize},
+    style::{Color, Stylize},
     text::Line,
     widgets::{
-        Axis, Block, Chart, Dataset, List, ListState, Paragraph, TableState,
+        Axis, Block, Chart, Clear, Dataset, List, ListState, Paragraph,
         canvas::{Canvas, Map, MapResolution, Shape},
     },
 };
@@ -21,10 +24,18 @@ fn main() -> Result<()> {
     initialize_logging()?;
     let mut terminal = ratatui::init();
     let mut model = Model::default();
+    model
+        .sat_config
+        .satellite_list
+        .push(Satellite::new_from_tle(
+            "ISS (ZARYA)
+1 25544U 98067A   25124.17583429  .00010980  00000+0  20479-3 0  9995
+2 25544  51.6364 165.0572 0002347  78.0135  27.5001 15.49334428508330",
+        ));
     info!("Loaded Model");
     while !model.exit {
         terminal.draw(|f| view(&mut model, f))?;
-        let mut current_msg = handle_event()?;
+        let mut current_msg = handle_event(&model)?;
         while current_msg.is_some() {
             current_msg = update(&mut model, current_msg.unwrap());
         }
@@ -39,68 +50,118 @@ fn update(model: &mut Model, message: Message) -> Option<Message> {
             model.exit = true;
             None
         }
-        Message::OpenSatConfig => {
-            model.sat_config.list_state = Some(ListState::default());
+        Message::ToggleSatConfig => {
+            if !(model.current_state == AppState::SatSelect) {
+                info!("Opening Satellite configuration picker");
+                model.current_state = AppState::SatSelect;
+            } else {
+                info!("Closing Satellite configuration picker");
+                model.current_state = AppState::Base;
+            }
+            None
+        }
+        Message::AddSatellite => todo!(),
+        Message::SatListUp => {
+            model.sat_config.list_state.scroll_up_by(1);
+            None
+        }
+        Message::SatListDown => {
+            model.sat_config.list_state.scroll_down_by(1);
+            None
+        }
+        Message::SatListSelect => {
+            if let Some(index) = model.sat_config.list_state.selected() {
+                if let Some(x) = model.sat_config.satellite_list.get(index) {
+                    model.current_satellite = Some(x.clone())
+                };
+            };
             None
         }
     }
     //Only updates are Adding/Removing satellites or ground stations, everything else is derived from the view and rendered on demand?
 }
 
-fn handle_event() -> Result<Option<Message>> {
+fn handle_event(model: &Model) -> Result<Option<Message>> {
     if event::poll(Duration::from_millis(250))? {
         if let Event::Key(key) = event::read()? {
             if key.kind == event::KeyEventKind::Press {
-                return Ok(handle_key(key));
+                match model.current_state {
+                    AppState::Base => return Ok(handle_key_base(key)),
+                    AppState::SatSelect => return Ok(handle_key_sat_config(key)),
+                }
             }
         }
     }
     Ok(None)
 }
 
-fn handle_key(key: event::KeyEvent) -> Option<Message> {
+fn handle_key_sat_config(key: event::KeyEvent) -> Option<Message> {
     match key.code {
         KeyCode::Char('q') => Some(Message::Close),
-        KeyCode::Char('s') => Some(Message::OpenSatConfig),
+        KeyCode::Char('c') => Some(Message::ToggleSatConfig),
+        KeyCode::Char('a') => Some(Message::AddSatellite),
+        KeyCode::Up => Some(Message::SatListUp),
+        KeyCode::Down => Some(Message::SatListDown),
+        KeyCode::Enter => Some(Message::SatListSelect),
+        _ => None,
+    }
+}
+fn handle_key_base(key: event::KeyEvent) -> Option<Message> {
+    match key.code {
+        KeyCode::Char('q') => Some(Message::Close),
+        KeyCode::Char('s') => Some(Message::ToggleSatConfig),
         _ => None,
     }
 }
 
 enum Message {
     Close,
-    OpenSatConfig,
+    ToggleSatConfig,
+    AddSatellite, //Only in SatConfig
+    SatListUp,    //Only in SatConfig
+    SatListDown,  //Only in SatConfig
+    SatListSelect,
 }
-
 #[derive(Default)]
-struct SatSelectionState {
+struct SatSelection {
     satellite_list: Vec<Satellite>,
-    list_state: Option<ListState>,
+    list_state: ListState,
 }
-
+impl SatSelection {
+    fn add_satellite_from_name(&mut self, sat_name: &str) {
+        todo!()
+    }
+}
+#[derive(Debug, PartialEq)]
+enum AppState {
+    Base,
+    SatSelect,
+}
 struct Model {
     current_satellite: Option<Satellite>,
-    sat_config: SatSelectionState,
+    sat_config: SatSelection,
+    current_state: AppState,
     sub_point_range: i64,
     exit: bool,
 }
 impl Default for Model {
     fn default() -> Self {
         Model {
-            current_satellite: Some(Satellite::new_from_tle(
-                "ISS (ZARYA)
-1 25544U 98067A   25124.17583429  .00010980  00000+0  20479-3 0  9995
-2 25544  51.6364 165.0572 0002347  78.0135  27.5001 15.49334428508330",
-            )),
+            current_satellite: None,
             sub_point_range: 120 * 60,
             exit: false,
-            sat_config: SatSelectionState::default(),
+            sat_config: SatSelection::default(),
+            current_state: AppState::Base,
         }
     }
 }
 
-fn view(model: &Model, frame: &mut Frame) {
-    let inner = view_app_border(frame, None);
+fn view(model: &mut Model, frame: &mut Frame) {
+    let inner = view_app_border(model, frame, None);
     view_ground_track(model, frame, Some(inner));
+    if model.current_state == AppState::SatSelect {
+        draw_popup(model, frame);
+    }
 }
 
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
@@ -112,24 +173,35 @@ fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
 }
 
 fn draw_popup(model: &mut Model, frame: &mut Frame) {
-    let area = popup_area(frame.area(), 10, 10);
+    let area = popup_area(frame.area(), 50, 50);
+    frame.render_widget(Clear, area);
+    let outer_block = Block::new().title_top(Line::from("Satellite Configuration").centered());
     let left_side_block = Block::bordered().title("Current Satellites").on_dark_gray();
     let right_side_block = Block::bordered().title("Satellite Details").on_dark_gray();
-    let [list_area, detail_area] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Fill(1)]).areas(area);
+    let [list_area, detail_area] = Layout::horizontal([Constraint::Fill(1), Constraint::Fill(1)])
+        .areas(outer_block.inner(area));
+    frame.render_widget(outer_block, area);
     let items: Vec<String> = model
         .sat_config
         .satellite_list
         .clone()
         .into_iter()
-        .map(|x| x.get_name())
+        .map(|x| {
+            if model.current_satellite.as_ref().is_some_and(|y| y == &x) {
+                format!("*{}", x.get_name())
+            } else {
+                x.get_name()
+            }
+        })
         .collect();
     let list = List::new(items)
         .block(left_side_block)
-        .highlight_symbol(">");
+        .highlight_symbol(">>");
     let mut current_sat = None;
-    if let Some(index) = model.sat_config.list_state.as_ref().unwrap().selected() {
-        current_sat = Some(model.sat_config.satellite_list.get(index).unwrap().clone());
+    if let Some(index) = model.sat_config.list_state.selected() {
+        if let Some(x) = model.sat_config.satellite_list.get(index) {
+            current_sat = Some(x)
+        };
     };
     let details;
     match current_sat {
@@ -145,9 +217,12 @@ fn draw_popup(model: &mut Model, frame: &mut Frame) {
                 sat.get_norad_id(),
                 strf_seconds(base_offset)
             ))
+            .block(right_side_block)
         }
-        None => details = Paragraph::new(""),
+        None => details = Paragraph::new("").block(right_side_block),
     }
+    frame.render_stateful_widget(list, list_area, &mut model.sat_config.list_state);
+    frame.render_widget(details, detail_area);
 }
 
 fn strf_seconds(seconds: i64) -> String {
@@ -158,15 +233,30 @@ fn strf_seconds(seconds: i64) -> String {
     format!("{} days, {}h {}m {}s", days, hours, minutes, seconds_new)
 }
 
-fn view_app_border(frame: &mut Frame, area: Option<Rect>) -> Rect {
+fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) -> Rect {
     let draw_area = area.unwrap_or(frame.area());
     let title = Line::from("Trackellite".bold());
-    let instructions = Line::from(vec![
-        "Configure Satellites".into(),
-        "<s> ".blue().bold(),
-        "Quit ".into(),
-        "<q> ".blue().bold(),
-    ]);
+    let instructions;
+    match model.current_state {
+        AppState::Base => {
+            instructions = Line::from(vec![
+                "Configure Satellites ".into(),
+                "<s> ".blue().bold(),
+                "Quit ".into(),
+                "<q> ".blue().bold(),
+            ])
+        }
+        AppState::SatSelect => {
+            instructions = Line::from(vec![
+                "Add Satellite ".into(),
+                "<a> ".blue().bold(),
+                "Close Popup ".into(),
+                "<c> ".blue().bold(),
+                "Quit ".into(),
+                "<q> ".blue().bold(),
+            ])
+        }
+    }
     let block = Block::new()
         .title_top(title.left_aligned())
         .title_bottom(instructions.right_aligned());

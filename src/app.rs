@@ -1,9 +1,6 @@
-use std::{fmt::Debug, path::PathBuf, sync::Mutex};
+use std::{path::PathBuf, sync::Mutex};
 
-use color_eyre::{
-    eyre::{Context, Result},
-    owo_colors::OwoColorize,
-};
+use color_eyre::eyre::Result;
 use directories::ProjectDirs;
 use lazy_static::lazy_static;
 use tracing::Level;
