@@ -1,41 +1,78 @@
-use std::{path::PathBuf, sync::Mutex};
+use std::time::Duration;
 
-use color_eyre::eyre::Result;
-use directories::ProjectDirs;
-use lazy_static::lazy_static;
-use tracing::Level;
-use tracing_subscriber::fmt::Subscriber;
-
-lazy_static! {
-    pub static ref PROJECT_NAME: String = env!("CARGO_CRATE_NAME").to_uppercase().to_string();
-    pub static ref DATA_FOLDER: Option<PathBuf> =
-        std::env::var(format!("{}_DATA", PROJECT_NAME.clone()))
-            .ok()
-            .map(PathBuf::from);
-    pub static ref LOG_ENV: String = format!("{}_LOGLEVEL", PROJECT_NAME.clone());
-    pub static ref LOG_FILE: String = format!("{}.log", env!("CARGO_PKG_NAME"));
+use crate::{AppState, Message, Model};
+use color_eyre::Result;
+use ratatui::crossterm::event::{self, Event, KeyCode};
+use tracing::info;
+pub fn update(model: &mut Model, message: Message) -> Option<Message> {
+    match message {
+        Message::Close => {
+            model.exit = true;
+            None
+        }
+        Message::ToggleSatConfig => {
+            if !(model.current_state == AppState::SatSelect) {
+                info!("Opening Satellite configuration picker");
+                model.current_state = AppState::SatSelect;
+            } else {
+                info!("Closing Satellite configuration picker");
+                model.current_state = AppState::Base;
+            }
+            None
+        }
+        Message::AddSatellite => todo!(),
+        Message::SatListUp => {
+            model.sat_config.list_state.scroll_up_by(1);
+            None
+        }
+        Message::SatListDown => {
+            model.sat_config.list_state.scroll_down_by(1);
+            None
+        }
+        Message::SatListSelect => {
+            if let Some(index) = model.sat_config.list_state.selected() {
+                if index == model.sat_config.satellite_list.len() {
+                    return Some(Message::AddSatellite);
+                } else if let Some(x) = model.sat_config.satellite_list.get(index) {
+                    model.current_satellite = Some(x.clone())
+                };
+            };
+            None
+        }
+    }
+    //Only updates are Adding/Removing satellites or ground stations, everything else is derived from the view and rendered on demand?
 }
 
-fn project_directory() -> Option<ProjectDirs> {
-    ProjectDirs::from("", "", env!("CARGO_PKG_NAME"))
+pub fn handle_event(model: &Model) -> Result<Option<Message>> {
+    if event::poll(Duration::from_millis(250))? {
+        if let Event::Key(key) = event::read()? {
+            if key.kind == event::KeyEventKind::Press {
+                match model.current_state {
+                    AppState::Base => return Ok(handle_key_base(key)),
+                    AppState::SatSelect => return Ok(handle_key_sat_config(key)),
+                    AppState::SatAddition => todo!(),
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
-pub fn get_data_dir() -> PathBuf {
-    let directory = if let Some(s) = DATA_FOLDER.clone() {
-        s
-    } else if let Some(proj_dirs) = project_directory() {
-        proj_dirs.data_local_dir().to_path_buf()
-    } else {
-        PathBuf::from(".").join(".data")
-    };
-    directory
+fn handle_key_sat_config(key: event::KeyEvent) -> Option<Message> {
+    match key.code {
+        KeyCode::Char('q') => Some(Message::Close),
+        KeyCode::Char('c') => Some(Message::ToggleSatConfig),
+        KeyCode::Char('a') => Some(Message::AddSatellite),
+        KeyCode::Up => Some(Message::SatListUp),
+        KeyCode::Down => Some(Message::SatListDown),
+        KeyCode::Enter => Some(Message::SatListSelect),
+        _ => None,
+    }
 }
-
-pub fn initialize_logging() -> Result<()> {
-    let log_file = std::fs::File::create("./log.log")?;
-    Subscriber::builder()
-        .with_writer(Mutex::new(log_file))
-        .with_max_level(Level::DEBUG)
-        .init();
-    Ok(())
+fn handle_key_base(key: event::KeyEvent) -> Option<Message> {
+    match key.code {
+        KeyCode::Char('q') => Some(Message::Close),
+        KeyCode::Char('s') => Some(Message::ToggleSatConfig),
+        _ => None,
+    }
 }
