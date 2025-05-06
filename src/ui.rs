@@ -1,18 +1,19 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use color_eyre::owo_colors::OwoColorize;
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
-    style::{Color, Stylize},
-    text::Line,
+    layout::{Constraint, Flex, Layout, Position, Rect},
+    style::{Color, Style, Styled, Stylize},
+    text::{Line, ToLine},
     widgets::{
-        Axis, Block, Chart, Clear, Dataset, List, Paragraph,
+        Axis, Block, Borders, Chart, Clear, Dataset, List, Paragraph,
         canvas::{Canvas, Map, MapResolution},
     },
 };
 use tracing::debug;
 
-use crate::{AppState, Model};
+use crate::{AddSatSel, AppState, Model};
 
 pub fn view(model: &mut Model, frame: &mut Frame) {
     let inner = view_app_border(model, frame, None);
@@ -31,7 +32,7 @@ fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
 }
 
 fn view_popup(model: &mut Model, frame: &mut Frame) {
-    let area = popup_area(frame.area(), 50, 50);
+    let area = popup_area(frame.area(), 70, 50);
     frame.render_widget(Clear, area);
     let outer_block = Block::new().title_top(Line::from("Satellite Configuration").centered());
     let left_side_block = Block::bordered().title("Current Satellites").on_dark_gray();
@@ -43,10 +44,72 @@ fn view_popup(model: &mut Model, frame: &mut Frame) {
     let [detail_area, message_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
             .areas(right_side_block.inner(detail_side));
+    let [text_area, tle_area] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Percentage(30)]).areas(detail_area);
     frame.render_widget(right_side_block, detail_side);
+    let details;
+    let tle;
+    let tle_block = Block::new()
+        .borders(Borders::all())
+        .title_top("TLE")
+        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_style(Style::new().fg(Color::Cyan));
     if model.current_state == AppState::SatAddition {
+        if model.sat_config.add_sat.selected == AddSatSel::NoradID {
+            let norad_id = model.sat_config.add_sat.text.clone();
+            let mut open_norad_id = String::new();
+            while norad_id.len() + open_norad_id.len() < 5 {
+                open_norad_id.push_str("_");
+            }
+            let norad_id_render;
+            if model.sat_config.add_sat.editing {
+                norad_id_render = vec![
+                    "Satellite Norad ID:".into(),
+                    norad_id.into(),
+                    open_norad_id.slow_blink(),
+                ];
+            } else {
+                norad_id_render = vec![
+                    "Satellite Norad ID:".into(),
+                    norad_id.reversed(),
+                    open_norad_id.reversed(),
+                ];
+            }
+            details = Paragraph::new(vec![
+                Line::from("Satellite Name: XXXXX"),
+                Line::from(norad_id_render),
+                Line::from("\nCurrent TLE age: 0 day(s), 0h 0m 0s\n"),
+            ]);
+            tle = Paragraph::new("").block(tle_block);
+        } else {
+            details = Paragraph::new(vec![
+                "Satellite Name: XXXXX\nSatellite Norad ID:".into(),
+                "_____".into(),
+                "\nCurrent TLE age: 0 day(s), 0h 0m 0s\n".into(),
+            ]);
+            if model.sat_config.add_sat.editing {
+                let current_text = model.sat_config.add_sat.text.clone();
+                let mut y_offset: u16 = 1;
+                let mut x_offset: u16 = 1;
+                if current_text.len() > 0 {
+                    let lines: Vec<String> = current_text.lines().map(|x| x.to_string()).collect();
+                    y_offset = lines.len() as u16;
+                    if let Some(x) = lines.last() {
+                        x_offset = x.len() as u16 + 1;
+                    }
+                }
+                frame.set_cursor_position(Position::new(
+                    tle_area.x + x_offset,
+                    tle_area.y + y_offset,
+                ));
+                tle = Paragraph::new(model.sat_config.add_sat.text.clone()).block(tle_block);
+            } else {
+                tle = Paragraph::new(model.sat_config.add_sat.text.clone())
+                    .block(tle_block)
+                    .reversed();
+            }
+        }
     } else {
-        let details;
         let mut current_sat = None;
         if let Some(index) = model.sat_config.list_state.selected() {
             if let Some(x) = model.sat_config.satellite_list.get(index) {
@@ -65,26 +128,29 @@ fn view_popup(model: &mut Model, frame: &mut Frame) {
                     sat.get_name(),
                     sat.get_norad_id(),
                     strf_seconds(base_offset)
-                ))
+                ));
+                tle = Paragraph::new(sat.get_tle()).block(tle_block);
             }
             None => {
                 details = Paragraph::new(
                     "Satellite Name: _____\nSatellite Norad ID: _____\nCurrent TLE age: 0 day(s), 0h 0m 0s\n",
-                )
+                );
+                tle = Paragraph::new("").block(tle_block);
             }
         }
-        frame.render_widget(details, detail_area);
-        if model.sat_config.current_message.error {
-            frame.render_widget(
-                Line::from(model.sat_config.current_message.text.as_ref()).red(),
-                message_area,
-            );
-        } else {
-            frame.render_widget(
-                Line::from(model.sat_config.current_message.text.as_ref()),
-                message_area,
-            );
-        }
+    }
+    frame.render_widget(details, text_area);
+    frame.render_widget(tle, tle_area);
+    if model.sat_config.current_message.error {
+        frame.render_widget(
+            Line::from(model.sat_config.current_message.text.as_ref()).red(),
+            message_area,
+        );
+    } else {
+        frame.render_widget(
+            Line::from(model.sat_config.current_message.text.as_ref()),
+            message_area,
+        );
     }
 }
 
@@ -155,7 +221,7 @@ fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) -> Rect
             instructions = Line::from(vec![
                 "Close Popup ".into(),
                 "<c> ".blue().bold(),
-                "Quit ".into(),
+                "Close Editor ".into(),
                 "<q> ".blue().bold(),
             ])
         }
