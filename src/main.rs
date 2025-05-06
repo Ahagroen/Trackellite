@@ -82,12 +82,13 @@ struct SatSelection {
 impl Default for SatSelection {
     fn default() -> Self {
         let cached_tles = get_tle_cache().unwrap();
+        debug!("Cached TLE's: {:?}", cached_tles);
         let mut satellites = vec![];
         for i in cached_tles.values() {
             satellites.push(Satellite::new_from_tle(i.as_str().unwrap()));
         }
         SatSelection {
-            satellite_list: vec![],
+            satellite_list: satellites,
             list_state: ListState::default(),
             clipboard: Clipboard::new().expect("Unable to access clipboard"),
             current_message: CurrentMsgSatSel {

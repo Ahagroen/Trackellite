@@ -1,8 +1,8 @@
 use crate::{
     AddSatMsg, AddSatSel, AppState, CurrentMsgSatSel, Message, Model, SatList, utils::get_data_dir,
 };
-use color_eyre::Result;
-use ratatui::crossterm::event::{self, Event, KeyCode};
+use color_eyre::{Result, owo_colors::OwoColorize};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use serde_json::{Map, Value, from_reader, to_writer};
 use sky_track::Satellite;
 use std::{
@@ -84,8 +84,14 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
                         match new_tle {
                             Ok(y) => match cache_tle(x.get_norad_id().to_string(), y.as_str()) {
                                 Ok(_) => {
-                                    model.sat_config.satellite_list[index] =
-                                        Satellite::new_from_tle(y.as_str());
+                                    info!("Got TLE from celestrak: {}", y.as_str());
+                                    let satellite = Satellite::new_from_tle(y.as_str());
+                                    cache_tle(
+                                        satellite.get_norad_id().to_string(),
+                                        satellite.get_tle(),
+                                    )
+                                    .unwrap();
+                                    model.sat_config.satellite_list[index] = satellite;
                                     return Some(Message::SatListMessage(SatList::UpdateMessage(
                                         CurrentMsgSatSel {
                                             error: false,
@@ -133,6 +139,7 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
                 if model.sat_config.add_sat.selected == AddSatSel::NoradID {
                     if let Ok(x) = model.sat_config.add_sat.text.parse::<u64>() {
                         if let Ok(y) = get_tle_spacetrack(x) {
+                            info!("Got TLE from spacetrack:{}", y.as_str());
                             satellite = Satellite::new_from_tle(y.as_str())
                         } else {
                             return Some(Message::SatListMessage(SatList::UpdateMessage(
@@ -157,8 +164,14 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
                 }
                 model.sat_config.add_sat.editing = false;
                 model.current_state = AppState::SatSelect;
+                cache_tle(satellite.get_norad_id().to_string(), satellite.get_tle()).unwrap();
                 model.sat_config.satellite_list.push(satellite);
-                None
+                return Some(Message::SatListMessage(SatList::UpdateMessage(
+                    CurrentMsgSatSel {
+                        error: false,
+                        text: "Loaded Satellite".to_string(),
+                    },
+                )));
             }
             AddSatMsg::ChangeSelection => match model.sat_config.add_sat.selected {
                 AddSatSel::NoradID => {
@@ -171,7 +184,7 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
                 }
             },
             AddSatMsg::LetterTyped(x) => match model.sat_config.add_sat.selected {
-                AddSatSel::NoradID => {
+                AddSatSel::TLEBox => {
                     model
                         .sat_config
                         .add_sat
@@ -179,7 +192,7 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
                         .push(x.chars().next().unwrap());
                     None
                 }
-                AddSatSel::TLEBox => {
+                AddSatSel::NoradID => {
                     if model.sat_config.add_sat.text.len() >= 5 {
                         return None;
                     }
@@ -215,7 +228,7 @@ pub fn handle_event(model: &Model) -> Result<Option<Message>> {
 
 fn handle_key_sat_config(key: event::KeyEvent) -> Option<Message> {
     match key.code {
-        KeyCode::Char('q') => Some(Message::ToggleSatConfig),
+        KeyCode::Char('q') | KeyCode::Esc => Some(Message::ToggleSatConfig),
         KeyCode::Char('c') => Some(Message::SatListMessage(SatList::CopyTLE)),
         KeyCode::Char('f') => Some(Message::SatListMessage(SatList::FetchTLE)),
         KeyCode::Up => Some(Message::SatListMessage(SatList::Up)),
@@ -226,7 +239,7 @@ fn handle_key_sat_config(key: event::KeyEvent) -> Option<Message> {
 }
 fn handle_key_base(key: event::KeyEvent) -> Option<Message> {
     match key.code {
-        KeyCode::Char('q') => Some(Message::Close),
+        KeyCode::Char('q') | KeyCode::Esc => Some(Message::Close),
         KeyCode::Char('s') => Some(Message::ToggleSatConfig),
         _ => None,
     }
@@ -235,14 +248,14 @@ fn handle_key_base(key: event::KeyEvent) -> Option<Message> {
 fn handle_key_sat_addition(key: event::KeyEvent, model: &Model) -> Option<Message> {
     if !model.sat_config.add_sat.editing {
         match key.code {
-            KeyCode::Char('q') => Some(Message::ToggleSatConfig),
+            KeyCode::Char('q') | KeyCode::Esc => Some(Message::ToggleSatConfig),
             KeyCode::Enter => Some(Message::AddSatMessage(AddSatMsg::StartEditing)),
             KeyCode::Up | KeyCode::Down => Some(Message::AddSatMessage(AddSatMsg::ChangeSelection)),
             _ => None,
         }
     } else {
         match key.code {
-            KeyCode::Char('q') => Some(Message::ToggleSatConfig),
+            KeyCode::Char('q') | KeyCode::Esc => Some(Message::ToggleSatConfig),
             KeyCode::Backspace => Some(Message::AddSatMessage(AddSatMsg::Backspace)),
             KeyCode::Enter => Some(Message::AddSatMessage(AddSatMsg::StopEditing)),
             _ => Some(Message::AddSatMessage(AddSatMsg::LetterTyped(
@@ -259,13 +272,14 @@ fn cache_tle(norad_id: String, tle: &str) -> Result<()> {
     tle_file.push("tle.json");
     let file = File::create(tle_file)?;
     let writer = BufWriter::new(file);
+    info!("Writing TLE cache: {:?}", &cache_data);
     to_writer(writer, &cache_data)?;
     Ok(())
 }
 
 fn get_tle_spacetrack(norad_id: u64) -> Result<String> {
     let response = get(format!(
-        "https://celestrak.org/satcat/records.php?CATNR={}&FORMAT=TLE",
+        "https://celestrak.org/NORAD/elements/gp.php?CATNR={}&FORMAT=TLE",
         norad_id.to_string()
     ))
     .call()?;
@@ -278,10 +292,12 @@ pub fn get_tle_cache() -> Result<Map<String, Value>> {
     if data_dir.try_exists()? {
         let file = File::open(data_dir)?;
         let reader = BufReader::new(file);
-        let json: Value = from_reader(reader).unwrap();
+        let json: Value = from_reader(reader)?;
         Ok(json.as_object().unwrap().clone())
     } else {
-        File::create_new(data_dir)?;
+        let file = File::create_new(data_dir)?;
+        let writer = BufWriter::new(file);
+        to_writer(writer, &Map::new())?;
         Ok(Map::new())
     }
 }
