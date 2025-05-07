@@ -22,6 +22,10 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
             if !(model.current_state == AppState::SatSelect) {
                 info!("Opening Satellite configuration picker");
                 model.current_state = AppState::SatSelect;
+                model.sat_config.current_message = CurrentMsgSatSel {
+                    error: false,
+                    text: "".to_string(),
+                }
             } else {
                 info!("Closing Satellite configuration picker");
                 model.current_state = AppState::Base;
@@ -31,6 +35,7 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
         Message::SatListMessage(x) => match x {
             SatList::AddSatellite => {
                 model.current_state = AppState::SatAddition;
+                model.sat_config.add_sat.text = "".to_string();
                 None
             }
             SatList::Up => {
@@ -185,12 +190,16 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
             },
             AddSatMsg::LetterTyped(x) => match model.sat_config.add_sat.selected {
                 AddSatSel::TLEBox => {
-                    model
-                        .sat_config
-                        .add_sat
-                        .text
-                        .push(x.chars().next().unwrap());
-                    None
+                    if x.as_str().is_ascii() {
+                        model
+                            .sat_config
+                            .add_sat
+                            .text
+                            .push(x.chars().next().unwrap());
+                        None
+                    } else {
+                        None
+                    }
                 }
                 AddSatSel::NoradID => {
                     if model.sat_config.add_sat.text.len() >= 5 {
@@ -206,6 +215,32 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
             AddSatMsg::Backspace => {
                 model.sat_config.add_sat.text.pop();
                 None
+            }
+            AddSatMsg::PasteTLE => {
+                if model.sat_config.add_sat.selected == AddSatSel::TLEBox {
+                    if let Ok(x) = model.sat_config.clipboard.get_text() {
+                        if x.lines().count() <= 3 {
+                            if let None = x.lines().find(|y| y.len() < 70) {
+                                model.sat_config.add_sat.editing = true;
+                                model.sat_config.add_sat.text = x;
+                                return Some(Message::SatListMessage(SatList::UpdateMessage(
+                                    CurrentMsgSatSel {
+                                        error: false,
+                                        text: "Pasted TLE".to_string(),
+                                    },
+                                )));
+                            }
+                        }
+                    }
+                    return Some(Message::SatListMessage(SatList::UpdateMessage(
+                        CurrentMsgSatSel {
+                            error: true,
+                            text: "Unable to paste TLE".to_string(),
+                        },
+                    )));
+                } else {
+                    None
+                }
             }
         },
     }
@@ -251,6 +286,7 @@ fn handle_key_sat_addition(key: event::KeyEvent, model: &Model) -> Option<Messag
             KeyCode::Char('q') | KeyCode::Esc => Some(Message::ToggleSatConfig),
             KeyCode::Enter => Some(Message::AddSatMessage(AddSatMsg::StartEditing)),
             KeyCode::Up | KeyCode::Down => Some(Message::AddSatMessage(AddSatMsg::ChangeSelection)),
+            KeyCode::Char('v') => Some(Message::AddSatMessage(AddSatMsg::PasteTLE)),
             _ => None,
         }
     } else {

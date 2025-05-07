@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use color_eyre::owo_colors::OwoColorize;
+use chrono::format;
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Position, Rect},
@@ -16,22 +16,23 @@ use tracing::debug;
 use crate::{AddSatSel, AppState, Model};
 
 pub fn view(model: &mut Model, frame: &mut Frame) {
-    let inner = view_app_border(model, frame, None);
-    view_ground_track(model, frame, Some(inner));
+    let [top_bar, core_bar, bottom_bar] = Layout::vertical([
+        Constraint::Length(5),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
+    view_app_border(model, frame, Some(bottom_bar));
+    let [ground_track_area, sat_stat_area] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(41)]).areas(core_bar);
+    view_ground_track(model, frame, Some(ground_track_area));
+    view_sat_data(model, frame, Some(sat_stat_area));
     if model.current_state == AppState::SatSelect || model.current_state == AppState::SatAddition {
-        view_popup(model, frame);
+        view_popup_sat_config(model, frame);
     }
 }
 
-fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
-    let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
-    let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
-    let [area] = vertical.areas(area);
-    let [area] = horizontal.areas(area);
-    area
-}
-
-fn view_popup(model: &mut Model, frame: &mut Frame) {
+fn view_popup_sat_config(model: &mut Model, frame: &mut Frame) {
     let area = popup_area(frame.area(), 70, 50);
     frame.render_widget(Clear, area);
     let outer_block = Block::new().title_top(Line::from("Satellite Configuration").centered());
@@ -44,9 +45,100 @@ fn view_popup(model: &mut Model, frame: &mut Frame) {
     let [detail_area, message_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
             .areas(right_side_block.inner(detail_side));
+    render_sat_list_details(model, frame, detail_area);
+    frame.render_widget(right_side_block, detail_side);
+    if model.sat_config.current_message.error {
+        frame.render_widget(
+            Line::from(model.sat_config.current_message.text.as_ref()).red(),
+            message_area,
+        );
+    } else {
+        frame.render_widget(
+            Line::from(model.sat_config.current_message.text.as_ref()),
+            message_area,
+        );
+    }
+}
+
+fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
+    let draw_area = area.unwrap_or(frame.area());
+    let instructions;
+    match model.current_state {
+        AppState::Base => {
+            instructions = Line::from(vec![
+                "Configure Satellites ".into(),
+                "<s> ".blue().bold(),
+                "Quit ".into(),
+                "<q> ".blue().bold(),
+            ])
+        }
+        AppState::SatSelect => {
+            instructions = Line::from(vec![
+                "Fetch TLE from Spacetrack ".into(),
+                "<f> ".blue().bold(),
+                "Copy TLE ".into(),
+                "<c> ".blue().bold(),
+                "Close Popup ".into(),
+                "<q> ".blue().bold(),
+            ])
+        }
+        AppState::SatAddition => {
+            instructions = Line::from(vec![
+                "Close Popup ".into(),
+                "<c> ".blue().bold(),
+                "Close Editor ".into(),
+                "<q> ".blue().bold(),
+            ])
+        }
+    }
+    frame.render_widget(Line::from(instructions).right_aligned(), draw_area);
+}
+
+fn view_ground_track(model: &Model, frame: &mut Frame, area: Option<Rect>) {
+    let draw_area = area.unwrap_or(frame.area());
+    let gt_frame = Block::bordered();
+    let internal_area = gt_frame.inner(draw_area);
+    frame.render_widget(gt_frame, draw_area);
+    render_background_map(frame, internal_area);
+    if model.current_satellite.is_some() {
+        render_tracks(model, frame, internal_area);
+    } else {
+        render_no_sat_text(frame, internal_area);
+    }
+}
+
+fn view_sat_data(model: &Model, frame: &mut Frame, area: Option<Rect>) {
+    let draw_area = area.unwrap_or(frame.area());
+    let sat_stat_block = Block::bordered();
+    if let Some(x) = model.current_satellite.as_ref() {
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        let base_offset = current_time - x.get_epoch().timestamp();
+        let lla = x.get_sub_point(base_offset);
+        let mut text = vec![
+            Line::from(format!("Satellite Name: {}", x.get_name())),
+            Line::from(format!("Latitude: {:.2} deg", lla.lat)),
+            Line::from(format!("Longitude: {:.2} deg", lla.long)),
+            Line::from(format!("Altitude: {:.2} Km", lla.alt)),
+            Line::from(format!("Speed: {:.2} Km/s", x.get_speed(base_offset))),
+        ];
+        frame.render_widget(List::new(text).block(sat_stat_block), draw_area)
+    } else {
+        frame.render_widget(
+            Paragraph::new("Select Satellite to display Telemetry")
+                .block(sat_stat_block)
+                .centered(),
+            draw_area,
+        );
+    }
+}
+
+fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area: Rect) {
     let [text_area, tle_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Percentage(30)]).areas(detail_area);
-    frame.render_widget(right_side_block, detail_side);
+
     let details;
     let tle;
     let tle_block = Block::new()
@@ -83,9 +175,9 @@ fn view_popup(model: &mut Model, frame: &mut Frame) {
             tle = Paragraph::new("").block(tle_block);
         } else {
             details = Paragraph::new(vec![
-                "Satellite Name: XXXXX\nSatellite Norad ID:".into(),
-                "_____".into(),
-                "\nCurrent TLE age: 0 day(s), 0h 0m 0s\n".into(),
+                Line::from("Satellite Name: XXXXX"),
+                Line::from("Satellite Norad ID:_____"),
+                Line::from("Current TLE age: 0 day(s), 0h 0m 0s"),
             ]);
             if model.sat_config.add_sat.editing {
                 let current_text = model.sat_config.add_sat.text.clone();
@@ -141,17 +233,6 @@ fn view_popup(model: &mut Model, frame: &mut Frame) {
     }
     frame.render_widget(details, text_area);
     frame.render_widget(tle, tle_area);
-    if model.sat_config.current_message.error {
-        frame.render_widget(
-            Line::from(model.sat_config.current_message.text.as_ref()).red(),
-            message_area,
-        );
-    } else {
-        frame.render_widget(
-            Line::from(model.sat_config.current_message.text.as_ref()),
-            message_area,
-        );
-    }
 }
 
 fn render_sat_list(
@@ -186,62 +267,6 @@ fn strf_seconds(seconds: i64) -> String {
     let seconds_new = seconds % 60;
     let days = seconds / 86400;
     format!("{} day(s), {}h {}m {}s", days, hours, minutes, seconds_new)
-}
-
-fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) -> Rect {
-    let draw_area = area.unwrap_or(frame.area());
-    let title = Line::from("Trackellite".bold());
-    let center_title;
-    if let Some(x) = model.current_satellite.as_ref() {
-        center_title = Line::from(x.get_name())
-    } else {
-        center_title = Line::from("");
-    }
-    let instructions;
-    match model.current_state {
-        AppState::Base => {
-            instructions = Line::from(vec![
-                "Configure Satellites ".into(),
-                "<s> ".blue().bold(),
-                "Quit ".into(),
-                "<q> ".blue().bold(),
-            ])
-        }
-        AppState::SatSelect => {
-            instructions = Line::from(vec![
-                "Fetch TLE from Spacetrack ".into(),
-                "<f> ".blue().bold(),
-                "Copy TLE ".into(),
-                "<c> ".blue().bold(),
-                "Close Popup ".into(),
-                "<q> ".blue().bold(),
-            ])
-        }
-        AppState::SatAddition => {
-            instructions = Line::from(vec![
-                "Close Popup ".into(),
-                "<c> ".blue().bold(),
-                "Close Editor ".into(),
-                "<q> ".blue().bold(),
-            ])
-        }
-    }
-    let block = Block::new()
-        .title_top(title.left_aligned())
-        .title_top(center_title.centered())
-        .title_bottom(instructions.right_aligned());
-    let data = block.inner(draw_area);
-    frame.render_widget(block, draw_area);
-    data
-}
-fn view_ground_track(model: &Model, frame: &mut Frame, area: Option<Rect>) {
-    let draw_area = area.unwrap_or(frame.area());
-    render_background_map(frame, draw_area);
-    if model.current_satellite.is_some() {
-        render_tracks(model, frame, draw_area);
-    } else {
-        render_no_sat_text(frame, draw_area);
-    }
 }
 
 fn render_no_sat_text(frame: &mut Frame<'_>, draw_area: Rect) {
@@ -345,4 +370,11 @@ fn render_background_map(frame: &mut Frame<'_>, draw_area: Rect) {
         .x_bounds([-180.0, 180.0])
         .y_bounds([-90.0, 90.0]);
     frame.render_widget(base_map, draw_area);
+}
+fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
+    let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);
+    let horizontal = Layout::horizontal([Constraint::Percentage(percent_x)]).flex(Flex::Center);
+    let [area] = vertical.areas(area);
+    let [area] = horizontal.areas(area);
+    area
 }

@@ -40,6 +40,7 @@ enum AddSatMsg {
     ChangeSelection,
     LetterTyped(String),
     Backspace,
+    PasteTLE,
 }
 #[derive(PartialEq, Debug)]
 enum AddSatSel {
