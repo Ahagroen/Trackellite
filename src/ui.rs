@@ -1,13 +1,14 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::format;
+use chrono::{DateTime, Datelike, Local, NaiveDateTime, Utc};
+use color_eyre::owo_colors::OwoColorize;
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Position, Rect},
-    style::{Color, Style, Styled, Stylize},
-    text::{Line, ToLine},
+    style::{Color, Style, Stylize},
+    text::Line,
     widgets::{
-        Axis, Block, Borders, Chart, Clear, Dataset, List, Paragraph,
+        Axis, Block, Borders, Chart, Clear, Dataset, List, Paragraph, Wrap,
         canvas::{Canvas, Map, MapResolution},
     },
 };
@@ -22,6 +23,7 @@ pub fn view(model: &mut Model, frame: &mut Frame) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
+    view_top_var(model, frame, Some(top_bar));
     view_app_border(model, frame, Some(bottom_bar));
     let [ground_track_area, sat_stat_area] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(41)]).areas(core_bar);
@@ -60,12 +62,57 @@ fn view_popup_sat_config(model: &mut Model, frame: &mut Frame) {
     }
 }
 
+fn view_top_var(model: &Model, frame: &mut Frame, area: Option<Rect>) {
+    let draw_area = area.unwrap_or(frame.area());
+    let [met_time, center, realtime] = Layout::horizontal([
+        Constraint::Fill(1),
+        Constraint::Percentage(50),
+        Constraint::Fill(1),
+    ])
+    .areas(draw_area);
+
+    let rt_frame = Block::bordered();
+    let mut rt_text = vec![
+        Line::from(format!("  UTC: {}", Utc::now().format("%Y-%m-%d %H:%M:%S"))).centered(),
+        Line::from(format!(
+            "LOCAL: {}",
+            Local::now().format("%Y-%m-%d %H:%M:%S")
+        ))
+        .centered(),
+    ];
+    if let Some(x) = model.current_satellite.as_ref() {
+        rt_text.push(
+            Line::from(format!(
+                "  MET: {} days",
+                (Utc::now().num_days_from_ce() - x.metadata.launch_date.num_days_from_ce())
+            ))
+            .centered(),
+        );
+    }
+    let rt_inner = rt_frame.inner(realtime);
+    frame.render_widget(rt_frame, realtime);
+    frame.render_widget(List::new(rt_text), rt_inner);
+
+    let track_frame = Block::bordered();
+    let center_text = vec![Line::from(""), Line::from("Trackellite").centered()];
+
+    let center_inner = track_frame.inner(center);
+    frame.render_widget(track_frame, center);
+    frame.render_widget(List::new(center_text), center_inner);
+
+    let met_frame = Block::bordered();
+    let met_inner = met_frame.inner(met_time);
+    frame.render_widget(met_frame, met_time);
+}
+
 fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let draw_area = area.unwrap_or(frame.area());
     let instructions;
     match model.current_state {
         AppState::Base => {
             instructions = Line::from(vec![
+                "Configure Ground Station ".into(),
+                "<g> ".blue().bold(),
                 "Configure Satellites ".into(),
                 "<s> ".blue().bold(),
                 "Quit ".into(),
@@ -90,8 +137,9 @@ fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
                 "<q> ".blue().bold(),
             ])
         }
+        AppState::GSConfig => todo!(),
     }
-    frame.render_widget(Line::from(instructions).right_aligned(), draw_area);
+    frame.render_widget(instructions.right_aligned(), draw_area);
 }
 
 fn view_ground_track(model: &Model, frame: &mut Frame, area: Option<Rect>) {
@@ -109,28 +157,78 @@ fn view_ground_track(model: &Model, frame: &mut Frame, area: Option<Rect>) {
 
 fn view_sat_data(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let draw_area = area.unwrap_or(frame.area());
+    let [sat_stats, pass_stats] =
+        Layout::vertical([Constraint::Fill(1), Constraint::Percentage(40)]).areas(draw_area);
+    render_sat_block(model, frame, sat_stats);
+    render_pass_block(model, frame, pass_stats);
+}
+
+fn render_pass_block(model: &Model, frame: &mut Frame, draw_area: Rect) {
+    let pass_stat_block = Block::bordered();
+    let inner_area = pass_stat_block.inner(draw_area);
+    frame.render_widget(pass_stat_block, draw_area);
+    let satellite = model.current_satellite.as_ref();
+    let stations = &model.station_config.station_list;
+    if satellite.is_some() && stations.len() > 0 {
+    } else {
+        let [_, text_area, _] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(4),
+            Constraint::Fill(1),
+        ])
+        .areas(inner_area);
+        frame.render_widget(
+            Paragraph::new("Ensure Satellite is selected and Ground Stations loaded to display upcoming pass data")
+                .wrap(Wrap { trim: false }),
+            text_area,
+        );
+    }
+}
+
+fn render_sat_block(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
     let sat_stat_block = Block::bordered();
+    let inner_area = sat_stat_block.inner(draw_area);
+    frame.render_widget(sat_stat_block, draw_area);
     if let Some(x) = model.current_satellite.as_ref() {
         let current_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        let base_offset = current_time - x.get_epoch().timestamp();
-        let lla = x.get_sub_point(base_offset);
-        let mut text = vec![
-            Line::from(format!("Satellite Name: {}", x.get_name())),
+        let base_offset = current_time - x.satellite.get_epoch().timestamp();
+        let lla = x.satellite.get_sub_point(base_offset);
+        let apo_peri = x.satellite.get_apogee_perigee();
+        let text = vec![
+            Line::from(format!("Satellite Name: {}", x.satellite.get_name())),
             Line::from(format!("Latitude: {:.2} deg", lla.lat)),
             Line::from(format!("Longitude: {:.2} deg", lla.long)),
-            Line::from(format!("Altitude: {:.2} Km", lla.alt)),
-            Line::from(format!("Speed: {:.2} Km/s", x.get_speed(base_offset))),
+            Line::from(format!("Local Altitude: {:.2} km", lla.alt)),
+            Line::from(format!(
+                "Speed: {:.2} Km/s",
+                x.satellite.get_speed(base_offset)
+            )),
+            Line::from(""),
+            Line::from(format!("Apogee: {:.2} km", apo_peri.0)),
+            Line::from(format!("Perigee: {:.2} km", apo_peri.1)),
+            Line::from(format!("Inclination: {:.2} deg", x.metadata.inclination)),
+            Line::from(format!(
+                "Orbital Period: {:.2} minutes",
+                x.satellite.get_period() / 60.0
+            )),
+            Line::from(""),
+            Line::from("Satellite in Sunlight"),
+            Line::from("Time to eclipse: XX:XX:XX"),
         ];
-        frame.render_widget(List::new(text).block(sat_stat_block), draw_area)
+        frame.render_widget(List::new(text), inner_area)
     } else {
+        let [_, text_area, _] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(4),
+            Constraint::Fill(1),
+        ])
+        .areas(inner_area);
         frame.render_widget(
-            Paragraph::new("Select Satellite to display Telemetry")
-                .block(sat_stat_block)
-                .centered(),
-            draw_area,
+            Paragraph::new("Select Satellite to display Telemetry").centered(),
+            text_area,
         );
     }
 }
@@ -151,7 +249,7 @@ fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area
             let norad_id = model.sat_config.add_sat.text.clone();
             let mut open_norad_id = String::new();
             while norad_id.len() + open_norad_id.len() < 5 {
-                open_norad_id.push_str("_");
+                open_norad_id.push('_');
             }
             let norad_id_render;
             if model.sat_config.add_sat.editing {
@@ -183,7 +281,7 @@ fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area
                 let current_text = model.sat_config.add_sat.text.clone();
                 let mut y_offset: u16 = 1;
                 let mut x_offset: u16 = 1;
-                if current_text.len() > 0 {
+                if !current_text.is_empty() {
                     let lines: Vec<String> = current_text.lines().map(|x| x.to_string()).collect();
                     y_offset = lines.len() as u16;
                     if let Some(x) = lines.last() {
@@ -214,14 +312,17 @@ fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_secs() as i64;
-                let base_offset = current_time - sat.get_epoch().timestamp();
+                let base_offset = current_time - sat.satellite.get_epoch().timestamp();
                 details = Paragraph::new(format!(
-                    "Satellite Name: {}\nSatellite Norad ID: {}\nCurrent TLE age: {}\n",
-                    sat.get_name(),
-                    sat.get_norad_id(),
+                    "Satellite Name: {}\nSatellite Norad ID: {}\nSatellite Catelog ID: {}\nSatellite Registered Owner:{}\nSatellite Launch Date:{}\nCurrent TLE age: {}\n",
+                    sat.satellite.get_name(),
+                    sat.satellite.get_norad_id(),
+                    sat.metadata.object_id,
+                    sat.metadata.owner,
+                    sat.metadata.launch_date.format("%Y-%m-%d"),
                     strf_seconds(base_offset)
                 ));
-                tle = Paragraph::new(sat.get_tle()).block(tle_block);
+                tle = Paragraph::new(sat.satellite.get_tle()).block(tle_block);
             }
             None => {
                 details = Paragraph::new(
@@ -247,10 +348,14 @@ fn render_sat_list(
         .clone()
         .into_iter()
         .map(|x| {
-            if model.current_satellite.as_ref().is_some_and(|y| y == &x) {
-                format!("*{}", x.get_name())
+            if model
+                .current_satellite
+                .as_ref()
+                .is_some_and(|y| y.satellite == x.satellite)
+            {
+                format!("*{}", x.satellite.get_name())
             } else {
-                x.get_name()
+                x.satellite.get_name()
             }
         })
         .collect();
@@ -293,11 +398,11 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
         .unwrap()
         .as_secs() as i64;
     let working_satellites = model.current_satellite.as_ref().unwrap();
-    let base_offset = current_time - working_satellites.get_epoch().timestamp();
-    let current_pos = working_satellites.get_sub_point(base_offset);
+    let base_offset = current_time - working_satellites.satellite.get_epoch().timestamp();
+    let current_pos = working_satellites.satellite.get_sub_point(base_offset);
     let points: Vec<(f64, f64)> = ((base_offset - 300)..(base_offset + model.sub_point_range))
         .map(|x| {
-            let sub_point = working_satellites.get_sub_point(x);
+            let sub_point = working_satellites.satellite.get_sub_point(x);
             (sub_point.long, sub_point.lat)
         })
         .collect();
@@ -306,28 +411,26 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
     let mut current_start: usize = 0;
     let mut current_end: usize = 0;
     for i in &points {
-        if prev.is_some() {
-            if prev.unwrap() < i.0 {
-                let dataset = Dataset::default()
-                    .name(working_satellites.get_name())
-                    .marker(ratatui::symbols::Marker::Braille)
-                    .graph_type(ratatui::widgets::GraphType::Line)
-                    .cyan()
-                    .data(&points[current_start..current_end]);
-                paths_list.push(dataset);
-                debug!(
-                    "End of Orbit! start_index: {}, end_index: {}",
-                    current_start, current_end
-                );
-                current_start = current_end + 1;
-            }
+        if prev.is_some() && prev.unwrap() < i.0 {
+            let dataset = Dataset::default()
+                .name(working_satellites.satellite.get_name())
+                .marker(ratatui::symbols::Marker::Braille)
+                .graph_type(ratatui::widgets::GraphType::Line)
+                .cyan()
+                .data(&points[current_start..current_end]);
+            paths_list.push(dataset);
+            debug!(
+                "End of Orbit! start_index: {}, end_index: {}",
+                current_start, current_end
+            );
+            current_start = current_end + 1;
         }
         // debug!("current x: {}, last x: {:?}", i.0, prev);
         current_end += 1;
         prev = Some(i.0);
     }
     let dataset = Dataset::default()
-        .name(working_satellites.get_name())
+        .name(working_satellites.satellite.get_name())
         .marker(ratatui::symbols::Marker::Braille)
         .graph_type(ratatui::widgets::GraphType::Line)
         .data(&points[current_start..current_end])

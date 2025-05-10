@@ -1,16 +1,18 @@
 use crate::{
-    AddSatMsg, AddSatSel, AppState, CurrentMsgSatSel, Message, Model, SatList, utils::get_data_dir,
+    AddSatMsg, AddSatSel, AppState, CurrentMsgSatSel, Message, MetaData, Model, SatList,
+    TLSatellite, utils::get_data_dir,
 };
-use color_eyre::{Result, owo_colors::OwoColorize};
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use color_eyre::{Result, eyre::Error};
+use ratatui::crossterm::event::{self, Event, KeyCode};
 use serde_json::{Map, Value, from_reader, to_writer};
 use sky_track::Satellite;
 use std::{
+    char::ToLowercase,
     fs::File,
     io::{BufReader, BufWriter},
     time::Duration,
 };
-use tracing::info;
+use tracing::{debug, info, instrument::WithSubscriber, warn};
 use ureq::get;
 pub fn update(model: &mut Model, message: Message) -> Option<Message> {
     match message {
@@ -22,12 +24,12 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
             if !(model.current_state == AppState::SatSelect) {
                 info!("Opening Satellite configuration picker");
                 model.current_state = AppState::SatSelect;
+            } else {
+                info!("Closing Satellite configuration picker");
                 model.sat_config.current_message = CurrentMsgSatSel {
                     error: false,
                     text: "".to_string(),
-                }
-            } else {
-                info!("Closing Satellite configuration picker");
+                };
                 model.current_state = AppState::Base;
             }
             None
@@ -60,22 +62,10 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
             SatList::CopyTLE => {
                 if let Some(index) = model.sat_config.list_state.selected() {
                     if let Some(x) = model.sat_config.satellite_list.get(index) {
-                        match model.sat_config.clipboard.set_text(x.get_tle()) {
-                            Ok(_) => {
-                                return Some(Message::SatListMessage(SatList::UpdateMessage(
-                                    CurrentMsgSatSel {
-                                        error: false,
-                                        text: "Copied TLE to clipboard".to_string(),
-                                    },
-                                )));
-                            }
+                        match model.sat_config.clipboard.set_text(x.satellite.get_tle()) {
+                            Ok(_) => return CurrentMsgSatSel::message("Copied TLE to clipboard"),
                             Err(_) => {
-                                return Some(Message::SatListMessage(SatList::UpdateMessage(
-                                    CurrentMsgSatSel {
-                                        error: true,
-                                        text: "Failed to copy to clipboard!".to_string(),
-                                    },
-                                )));
+                                return CurrentMsgSatSel::error("Failed to copy to clipboard!");
                             }
                         }
                     }
@@ -85,44 +75,39 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
             SatList::FetchTLE => {
                 if let Some(index) = model.sat_config.list_state.selected() {
                     if let Some(x) = model.sat_config.satellite_list.get(index) {
-                        let new_tle = get_tle_spacetrack(x.get_norad_id());
+                        let new_tle = get_tle_spacetrack(x.satellite.get_norad_id());
                         match new_tle {
-                            Ok(y) => match cache_tle(x.get_norad_id().to_string(), y.as_str()) {
-                                Ok(_) => {
-                                    info!("Got TLE from celestrak: {}", y.as_str());
-                                    let satellite = Satellite::new_from_tle(y.as_str());
-                                    cache_tle(
-                                        satellite.get_norad_id().to_string(),
-                                        satellite.get_tle(),
-                                    )
-                                    .unwrap();
-                                    model.sat_config.satellite_list[index] = satellite;
-                                    return Some(Message::SatListMessage(SatList::UpdateMessage(
-                                        CurrentMsgSatSel {
-                                            error: false,
-                                            text: format!(
-                                                "Updated TLE for satellite: {}",
-                                                model.sat_config.satellite_list[index].get_name()
-                                            ),
-                                        },
-                                    )));
+                            Ok(y) => {
+                                match cache_tle(
+                                    x.satellite.get_norad_id().to_string(),
+                                    y.as_str(),
+                                    x.metadata.clone(),
+                                ) {
+                                    Ok(_) => {
+                                        info!("Got TLE from celestrak: {}", y.as_str());
+                                        let satellite = Satellite::new_from_tle(y.as_str());
+                                        model.sat_config.satellite_list[index] = TLSatellite {
+                                            satellite,
+                                            metadata: x.metadata.clone(),
+                                        };
+                                        return CurrentMsgSatSel::message(&format!(
+                                            "Updated TLE for satellite: {}",
+                                            model.sat_config.satellite_list[index]
+                                                .satellite
+                                                .get_name()
+                                        ));
+                                    }
+                                    Err(x) => {
+                                        warn!("{}", x);
+                                        return CurrentMsgSatSel::error("Failed to cache TLE");
+                                    }
                                 }
-                                Err(_) => {
-                                    return Some(Message::SatListMessage(SatList::UpdateMessage(
-                                        CurrentMsgSatSel {
-                                            error: true,
-                                            text: "Failed to cache TLE".to_string(),
-                                        },
-                                    )));
-                                }
-                            },
-                            Err(_) => {
-                                return Some(Message::SatListMessage(SatList::UpdateMessage(
-                                    CurrentMsgSatSel {
-                                        error: true,
-                                        text: "Failed to collect TLE from celestrak".to_string(),
-                                    },
-                                )));
+                            }
+                            Err(x) => {
+                                warn! {"{}",x};
+                                return CurrentMsgSatSel::error(
+                                    "Failed to collect TLE from celestrak",
+                                );
                             }
                         }
                     }
@@ -141,42 +126,55 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
             }
             AddSatMsg::StopEditing => {
                 let satellite: Satellite;
+                let metadata: MetaData;
                 if model.sat_config.add_sat.selected == AddSatSel::NoradID {
                     if let Ok(x) = model.sat_config.add_sat.text.parse::<u64>() {
                         if let Ok(y) = get_tle_spacetrack(x) {
                             info!("Got TLE from spacetrack:{}", y.as_str());
+                            let sup_data = get_sup_data_spacetrack(&x.to_string());
+                            if let Ok(z) = sup_data {
+                                info!("Got Sup data from spacetrack:{:?}", z);
+                                metadata = z;
+                            } else {
+                                warn!("{}", sup_data.unwrap_err());
+                                return CurrentMsgSatSel::error(
+                                    "Failed to collect SUP Data from celestrak",
+                                );
+                            }
                             satellite = Satellite::new_from_tle(y.as_str())
                         } else {
-                            return Some(Message::SatListMessage(SatList::UpdateMessage(
-                                CurrentMsgSatSel {
-                                    error: true,
-                                    text: "Failed to collect TLE from celestrak".to_string(),
-                                },
-                            )));
+                            return CurrentMsgSatSel::error("Failed to collect TLE from celestrak");
                         }
                     } else {
                         model.sat_config.add_sat.editing = false;
                         model.sat_config.add_sat.text = "".to_string();
-                        return Some(Message::SatListMessage(SatList::UpdateMessage(
-                            CurrentMsgSatSel {
-                                error: true,
-                                text: "Could not read NORAD ID".to_string(),
-                            },
-                        )));
+                        return CurrentMsgSatSel::error("Could not read NORAD ID");
                     }
                 } else {
                     satellite = Satellite::new_from_tle(&model.sat_config.add_sat.text);
+                    let rs_metadata =
+                        get_sup_data_spacetrack(&satellite.get_norad_id().to_string());
+                    if rs_metadata.is_err() {
+                        return CurrentMsgSatSel::error(
+                            "Failed to collect SUP Data from celestrak",
+                        );
+                    } else {
+                        metadata = rs_metadata.unwrap();
+                    }
                 }
                 model.sat_config.add_sat.editing = false;
                 model.current_state = AppState::SatSelect;
-                cache_tle(satellite.get_norad_id().to_string(), satellite.get_tle()).unwrap();
-                model.sat_config.satellite_list.push(satellite);
-                return Some(Message::SatListMessage(SatList::UpdateMessage(
-                    CurrentMsgSatSel {
-                        error: false,
-                        text: "Loaded Satellite".to_string(),
-                    },
-                )));
+                cache_tle(
+                    satellite.get_norad_id().to_string(),
+                    satellite.get_tle(),
+                    metadata.clone(),
+                )
+                .unwrap();
+                model.sat_config.satellite_list.push(TLSatellite {
+                    satellite,
+                    metadata,
+                });
+                CurrentMsgSatSel::message("Loaded Satellite")
             }
             AddSatMsg::ChangeSelection => match model.sat_config.add_sat.selected {
                 AddSatSel::NoradID => {
@@ -220,29 +218,29 @@ pub fn update(model: &mut Model, message: Message) -> Option<Message> {
                 if model.sat_config.add_sat.selected == AddSatSel::TLEBox {
                     if let Ok(x) = model.sat_config.clipboard.get_text() {
                         if x.lines().count() <= 3 {
-                            if let None = x.lines().find(|y| y.len() < 70) {
+                            if x.lines().find(|y| y.len() < 70).is_none() {
                                 model.sat_config.add_sat.editing = true;
                                 model.sat_config.add_sat.text = x;
-                                return Some(Message::SatListMessage(SatList::UpdateMessage(
-                                    CurrentMsgSatSel {
-                                        error: false,
-                                        text: "Pasted TLE".to_string(),
-                                    },
-                                )));
+                                return CurrentMsgSatSel::message("Pasted TLE");
                             }
                         }
                     }
-                    return Some(Message::SatListMessage(SatList::UpdateMessage(
-                        CurrentMsgSatSel {
-                            error: true,
-                            text: "Unable to paste TLE".to_string(),
-                        },
-                    )));
+
+                    CurrentMsgSatSel::error("Unable to paste TLE")
                 } else {
                     None
                 }
             }
         },
+        Message::ToggleGSConfig => {
+            if model.current_state != AppState::GSConfig {
+                model.current_state = AppState::GSConfig;
+            } else {
+                model.current_state = AppState::Base;
+            }
+
+            None
+        }
     }
 }
 
@@ -254,6 +252,7 @@ pub fn handle_event(model: &Model) -> Result<Option<Message>> {
                     AppState::Base => return Ok(handle_key_base(key)),
                     AppState::SatSelect => return Ok(handle_key_sat_config(key)),
                     AppState::SatAddition => return Ok(handle_key_sat_addition(key, model)),
+                    AppState::GSConfig => todo!(),
                 }
             }
         }
@@ -276,6 +275,7 @@ fn handle_key_base(key: event::KeyEvent) -> Option<Message> {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => Some(Message::Close),
         KeyCode::Char('s') => Some(Message::ToggleSatConfig),
+        KeyCode::Char('g') => Some(Message::ToggleGSConfig),
         _ => None,
     }
 }
@@ -301,9 +301,12 @@ fn handle_key_sat_addition(key: event::KeyEvent, model: &Model) -> Option<Messag
     }
 }
 
-fn cache_tle(norad_id: String, tle: &str) -> Result<()> {
-    let mut cache_data = get_tle_cache()?;
-    let _ = cache_data.insert(norad_id, Value::String(tle.to_string()));
+fn cache_tle(norad_id: String, tle: &str, metadata: MetaData) -> Result<()> {
+    let mut cache_data = get_sat_cache()?;
+    let mut carry: Map<String, Value> = Map::new();
+    carry.insert("metadata".to_string(), metadata.to_string().into());
+    carry.insert("tle".to_string(), tle.into());
+    let _ = cache_data.insert(norad_id, carry.into());
     let mut tle_file = get_data_dir();
     tle_file.push("tle.json");
     let file = File::create(tle_file)?;
@@ -313,18 +316,38 @@ fn cache_tle(norad_id: String, tle: &str) -> Result<()> {
     Ok(())
 }
 
+fn get_sup_data_spacetrack(norad_id: &str) -> Result<MetaData> {
+    let response = get(format!(
+        "https://celestrak.org/satcat/records.php?CATNR={}",
+        norad_id
+    ))
+    .call()?;
+    let json_response: Vec<Map<String, Value>> = response.into_body().read_json()?;
+    debug!("{:?}", json_response);
+    let response_map = json_response[0].clone();
+    MetaData::from_string(&response_map)
+}
+
 fn get_tle_spacetrack(norad_id: u64) -> Result<String> {
     let response = get(format!(
         "https://celestrak.org/NORAD/elements/gp.php?CATNR={}&FORMAT=TLE",
-        norad_id.to_string()
+        norad_id
     ))
     .call()?;
     Ok(response.into_body().read_to_string()?)
 }
 
-pub fn get_tle_cache() -> Result<Map<String, Value>> {
+pub fn get_sat_cache() -> Result<Map<String, Value>> {
+    get_cache_file("tle.json")
+}
+
+pub fn get_gs_cache() -> Result<Map<String, Value>> {
+    get_cache_file("gs.json")
+}
+
+fn get_cache_file(filename: &str) -> Result<Map<String, Value>> {
     let mut data_dir = get_data_dir();
-    data_dir.push("tle.json");
+    data_dir.push(filename);
     if data_dir.try_exists()? {
         let file = File::open(data_dir)?;
         let reader = BufReader::new(file);
