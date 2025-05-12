@@ -1,20 +1,19 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, Datelike, Local, NaiveDateTime, Utc};
-use color_eyre::owo_colors::OwoColorize;
+use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeDelta, Utc};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Position, Rect},
     style::{Color, Style, Stylize},
     text::Line,
     widgets::{
-        Axis, Block, Borders, Chart, Clear, Dataset, List, Paragraph, Wrap,
+        Axis, Block, Borders, Chart, Clear, Dataset, List, Paragraph, Row, Table, Wrap,
         canvas::{Canvas, Map, MapResolution},
     },
 };
-use tracing::debug;
+use tracing::{debug, warn};
 
-use crate::{AddSatSel, AppState, Model};
+use crate::{AddSatSel, AppState, GSconfigState, Model};
 
 pub fn view(model: &mut Model, frame: &mut Frame) {
     let [top_bar, core_bar, bottom_bar] = Layout::vertical([
@@ -31,11 +30,137 @@ pub fn view(model: &mut Model, frame: &mut Frame) {
     view_sat_data(model, frame, Some(sat_stat_area));
     if model.current_state == AppState::SatSelect || model.current_state == AppState::SatAddition {
         view_popup_sat_config(model, frame);
+    } else if model.current_state == AppState::GSConfig {
+        view_popup_gs_config(model, frame)
+    }
+}
+
+fn view_popup_gs_config(model: &mut Model, frame: &mut Frame<'_>) {
+    let area = popup_area(frame.area(), 35, 50);
+    frame.render_widget(Clear, area);
+    let outer_block =
+        Block::bordered().title_top(Line::from("Ground Station Configuration").centered());
+    let [gs_area, message_area] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+        .areas(outer_block.inner(area));
+    frame.render_widget(outer_block, area);
+    let mut data: Vec<Row> = vec![];
+    let header = Row::new(vec![
+        "Active".to_string(),
+        "Name".to_string(),
+        "Lat".to_string(),
+        "Long".to_string(),
+        "Alt".to_string(),
+    ]);
+    for (index, i) in model.station_config.station_list.iter().enumerate() {
+        let mut carry: Vec<String> = vec![];
+        if i.active {
+            carry.push("+".to_string())
+        } else {
+            carry.push(" ".to_string())
+        }
+        if model.station_config.editing == GSconfigState::CellEdit
+            && model
+                .station_config
+                .table_state
+                .selected()
+                .is_some_and(|x| index == x)
+        {
+            match model.station_config.table_state.selected_column().unwrap() {
+                1 => {
+                    carry.append(&mut vec![
+                        model.station_config.current_edit_buffer.clone(),
+                        format!("{}", i.station.lat),
+                        format!("{}", i.station.long),
+                        format!("{}", i.station.alt),
+                    ]);
+                }
+                2 => {
+                    carry.append(&mut vec![
+                        i.station.name.clone(),
+                        model.station_config.current_edit_buffer.clone(),
+                        format!("{}", i.station.long),
+                        format!("{}", i.station.alt),
+                    ]);
+                }
+                3 => {
+                    carry.append(&mut vec![
+                        i.station.name.clone(),
+                        format!("{}", i.station.lat),
+                        model.station_config.current_edit_buffer.clone(),
+                        format!("{}", i.station.alt),
+                    ]);
+                }
+                4 => {
+                    carry.append(&mut vec![
+                        i.station.name.clone(),
+                        format!("{}", i.station.lat),
+                        format!("{}", i.station.long),
+                        model.station_config.current_edit_buffer.clone(),
+                    ]);
+                }
+                _ => warn!("GS config index out of range"),
+            }
+            data.push(Row::new(carry))
+        } else {
+            carry.append(&mut vec![
+                i.station.name.clone(),
+                format!("{}", i.station.lat),
+                format!("{}", i.station.long),
+                format!("{}", i.station.alt),
+            ]);
+            data.push(Row::new(carry))
+        }
+    }
+    data.push(Row::new(vec![
+        " ".to_string(),
+        "Add Station".to_string(),
+        "0".to_string(),
+        "0".to_string(),
+        "0".to_string(),
+    ]));
+    let widths = [
+        Constraint::Length(7),
+        Constraint::Fill(2),
+        Constraint::Fill(1),
+        Constraint::Fill(1),
+        Constraint::Fill(1),
+    ];
+    let table_widget: Table;
+    match model.station_config.editing {
+        GSconfigState::RowSelect => {
+            table_widget = Table::new(data, widths)
+                .highlight_symbol(">>")
+                .header(header)
+        }
+        GSconfigState::CellSelect => {
+            table_widget = Table::new(data, widths)
+                .highlight_symbol(">>")
+                .header(header)
+                .cell_highlight_style(Style::new().reversed())
+        }
+        GSconfigState::CellEdit => {
+            table_widget = Table::new(data, widths)
+                .highlight_symbol(">>")
+                .header(header)
+                .cell_highlight_style(Style::new().underlined())
+        }
+    };
+    frame.render_stateful_widget(table_widget, gs_area, &mut model.station_config.table_state);
+    if model.station_config.current_msg.error {
+        frame.render_widget(
+            Line::from(model.station_config.current_msg.text.as_ref()).red(),
+            message_area,
+        );
+    } else {
+        frame.render_widget(
+            Line::from(model.station_config.current_msg.text.as_ref()),
+            message_area,
+        );
     }
 }
 
 fn view_popup_sat_config(model: &mut Model, frame: &mut Frame) {
-    let area = popup_area(frame.area(), 70, 50);
+    let area = popup_area(frame.area(), 65, 50);
     frame.render_widget(Clear, area);
     let outer_block = Block::new().title_top(Line::from("Satellite Configuration").centered());
     let left_side_block = Block::bordered().title("Current Satellites").on_dark_gray();
@@ -61,7 +186,22 @@ fn view_popup_sat_config(model: &mut Model, frame: &mut Frame) {
         );
     }
 }
-
+fn strf_seconds_small(seconds: i64) -> String {
+    let working_seconds;
+    if seconds < 0 {
+        working_seconds = seconds * -1
+    } else {
+        working_seconds = seconds
+    }
+    let minutes = (working_seconds % 3600) / 60;
+    let hours = (working_seconds) / 3600;
+    let seconds_new = working_seconds % 60;
+    if seconds < 0 {
+        format!("-{:02}:{:02}:{:02}", hours, minutes, seconds_new)
+    } else {
+        format!("+{:02}:{:02}:{:02}", hours, minutes, seconds_new)
+    }
+}
 fn view_top_var(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let draw_area = area.unwrap_or(frame.area());
     let [met_time, center, realtime] = Layout::horizontal([
@@ -103,6 +243,54 @@ fn view_top_var(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let met_frame = Block::bordered();
     let met_inner = met_frame.inner(met_time);
     frame.render_widget(met_frame, met_time);
+    if model.upcoming_passes.len() == 0 {
+        let met_text;
+        met_text = vec![
+            Line::from(""),
+            Line::from("Please select a satellite and").centered(),
+            Line::from("Ground Station for next pass data").centered(),
+        ];
+        frame.render_widget(List::new(met_text), met_inner);
+    } else {
+        let pass = model.upcoming_passes[0].clone();
+        let widths = vec![Constraint::Fill(1), Constraint::Fill(1)];
+        if Utc::now().signed_duration_since(pass.pass.get_aos_datetime()) > TimeDelta::zero() {
+        } else {
+            let aos_time_till = Utc::now().signed_duration_since(pass.pass.get_aos_datetime());
+            let los_time_till = Utc::now().signed_duration_since(pass.pass.get_los_datetime());
+            let pass_text = vec![
+                Row::new(vec![
+                    format!("Station: {}", pass.station),
+                    format!(
+                        "Time to AOS: T{}",
+                        strf_seconds_small(aos_time_till.num_seconds())
+                    ),
+                ]),
+                Row::new(vec![
+                    format!(
+                        "Time to TME: T{}",
+                        strf_seconds_small(
+                            Utc::now()
+                                .signed_duration_since(pass.pass.get_tme_datetime())
+                                .num_seconds()
+                        )
+                    ),
+                    format!(
+                        "Time to LOS: T{}",
+                        strf_seconds_small(los_time_till.num_seconds())
+                    ),
+                ]),
+                Row::new(vec![
+                    format!("Max. Elevation: {:.2}deg", pass.pass.get_max_elevation()),
+                    format!(
+                        "Duration: {}sec",
+                        (pass.pass.get_los_datetime() - pass.pass.get_aos_datetime()).num_seconds()
+                    ),
+                ]),
+            ];
+            frame.render_widget(Table::new(pass_text, widths), met_inner);
+        }
+    }
 }
 
 fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
@@ -111,7 +299,7 @@ fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     match model.current_state {
         AppState::Base => {
             instructions = Line::from(vec![
-                "Configure Ground Station ".into(),
+                "Configure Ground Stations ".into(),
                 "<g> ".blue().bold(),
                 "Configure Satellites ".into(),
                 "<s> ".blue().bold(),
@@ -131,13 +319,13 @@ fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
         }
         AppState::SatAddition => {
             instructions = Line::from(vec![
+                "Paste TLE ".into(),
+                "<v> ".blue().bold(),
                 "Close Popup ".into(),
-                "<c> ".blue().bold(),
-                "Close Editor ".into(),
                 "<q> ".blue().bold(),
             ])
         }
-        AppState::GSConfig => todo!(),
+        AppState::GSConfig => instructions = Line::from(vec!["".into(), "".blue().bold()]),
     }
     frame.render_widget(instructions.right_aligned(), draw_area);
 }
@@ -168,7 +356,7 @@ fn render_pass_block(model: &Model, frame: &mut Frame, draw_area: Rect) {
     let inner_area = pass_stat_block.inner(draw_area);
     frame.render_widget(pass_stat_block, draw_area);
     let satellite = model.current_satellite.as_ref();
-    let stations = &model.station_config.station_list;
+    let stations = &model.upcoming_passes;
     if satellite.is_some() && stations.len() > 0 {
     } else {
         let [_, text_area, _] = Layout::vertical([
@@ -367,11 +555,17 @@ fn render_sat_list(
 }
 
 fn strf_seconds(seconds: i64) -> String {
-    let minutes = (seconds % 3600) / 60;
-    let hours = (seconds % 86400) / 3600;
-    let seconds_new = seconds % 60;
-    let days = seconds / 86400;
-    format!("{} day(s), {}h {}m {}s", days, hours, minutes, seconds_new)
+    let working_seconds;
+    if seconds < 0 {
+        working_seconds = seconds * -1
+    } else {
+        working_seconds = seconds
+    }
+    let minutes = (working_seconds % 3600) / 60;
+    let hours = (working_seconds % 86400) / 3600;
+    let seconds_new = working_seconds % 60;
+    let days = working_seconds / 86400;
+    return format!("{} day(s), {}h {}m {}s", days, hours, minutes, seconds_new);
 }
 
 fn render_no_sat_text(frame: &mut Frame<'_>, draw_area: Rect) {
@@ -411,7 +605,7 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
     let mut current_start: usize = 0;
     let mut current_end: usize = 0;
     for i in &points {
-        if prev.is_some() && prev.unwrap() < i.0 {
+        if prev.is_some() && prev.unwrap() > i.0 {
             let dataset = Dataset::default()
                 .name(working_satellites.satellite.get_name())
                 .marker(ratatui::symbols::Marker::Braille)
@@ -446,6 +640,26 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
             .legend_position(None),
         draw_area,
     );
+    for i in model
+        .station_config
+        .station_list
+        .iter()
+        .filter(|x| x.active)
+    {
+        frame.render_widget(
+            Canvas::default()
+                .paint(|ctx| {
+                    ctx.print(
+                        i.station.long,
+                        i.station.lat,
+                        "+".yellow().into_centered_line(),
+                    )
+                })
+                .x_bounds([-180.0, 180.0])
+                .y_bounds([-90.0, 90.0]),
+            draw_area,
+        );
+    }
     frame.render_widget(
         Canvas::default()
             .paint(|ctx| {
