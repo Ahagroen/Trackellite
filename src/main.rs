@@ -1,14 +1,14 @@
 use app::{get_gs_cache, get_sat_cache, handle_event, update};
 use arboard::Clipboard;
-use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
-use color_eyre::{Result, eyre::Error, owo_colors::OwoColorize};
+use chrono::{DateTime, Utc};
+use color_eyre::Result;
 use ratatui::{
     crossterm::event::KeyCode,
     init, restore,
     widgets::{ListState, TableState},
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, from_str};
+use serde_json::from_str;
 use sky_track::{GroundStation, Pass, Satellite};
 use ui::view;
 use utils::initialize_logging;
@@ -260,7 +260,7 @@ struct TLPass {
     station: String,
 }
 mod celestrak_date {
-    use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
+    use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
     use serde::{self, Deserialize, Deserializer, Serializer, de::Error};
 
     const FORMAT: &'static str = "%Y-%m-%d";

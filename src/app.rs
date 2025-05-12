@@ -2,18 +2,18 @@ use crate::{
     AddSatMsg, AddSatSel, AppState, CurrentMsg, GSConfigMsg, GSconfigState, ListMovement, Message,
     MetaData, Model, SatList, TLGroundStation, TLPass, TLSatellite, utils::get_data_dir,
 };
-use chrono::{Days, SecondsFormat, TimeDelta, Utc};
-use color_eyre::{Result, eyre::Error, owo_colors::OwoColorize};
+use chrono::{Days, TimeDelta, Utc};
+use color_eyre::Result;
 use ratatui::crossterm::event::{self, Event, KeyCode};
-use serde_json::{Map, Value, from_reader, from_str, to_string, to_writer};
-use sky_track::{GroundStation, Pass, Satellite, find_passes_datetime};
+use serde_json::{from_reader, to_string, to_writer};
+use sky_track::{GroundStation, Satellite, find_passes_datetime};
 use std::{
     collections::HashMap,
     fs::File,
     io::{BufReader, BufWriter},
     time::Duration,
 };
-use tracing::{debug, info, instrument::WithSubscriber, warn};
+use tracing::{debug, info, warn};
 use ureq::get;
 pub fn update(model: &mut Model, message: Message) -> Option<Message> {
     match message {
@@ -511,8 +511,9 @@ pub fn handle_event(model: &Model) -> Result<Option<Message>> {
         }
     } else if let Some(x) = model.upcoming_passes.get(0) {
         if x.pass.get_los_datetime().signed_duration_since(Utc::now())
-            < TimeDelta::new(-30, 0).unwrap()
+            < TimeDelta::new(-1800, 0).unwrap()
         {
+            info!("Re-propagating to remove old pass");
             return Ok(Some(Message::PropagatePasses));
         }
     }

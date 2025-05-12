@@ -1,13 +1,13 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, Datelike, Local, NaiveDateTime, TimeDelta, Utc};
+use chrono::{Datelike, Local, TimeDelta, Utc};
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Position, Rect},
     style::{Color, Style, Stylize},
     text::Line,
     widgets::{
-        Axis, Block, Borders, Chart, Clear, Dataset, List, Paragraph, Row, Table, Wrap,
+        Axis, Block, Borders, Chart, Clear, Dataset, Gauge, List, Paragraph, Row, Table, Wrap,
         canvas::{Canvas, Map, MapResolution},
     },
 };
@@ -22,7 +22,7 @@ pub fn view(model: &mut Model, frame: &mut Frame) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    view_top_var(model, frame, Some(top_bar));
+    view_top_bar(model, frame, Some(top_bar));
     view_app_border(model, frame, Some(bottom_bar));
     let [ground_track_area, sat_stat_area] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(41)]).areas(core_bar);
@@ -202,7 +202,7 @@ fn strf_seconds_small(seconds: i64) -> String {
         format!("+{:02}:{:02}:{:02}", hours, minutes, seconds_new)
     }
 }
-fn view_top_var(model: &Model, frame: &mut Frame, area: Option<Rect>) {
+fn view_top_bar(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let draw_area = area.unwrap_or(frame.area());
     let [met_time, center, realtime] = Layout::horizontal([
         Constraint::Fill(1),
@@ -254,40 +254,52 @@ fn view_top_var(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     } else {
         let pass = model.upcoming_passes[0].clone();
         let widths = vec![Constraint::Fill(1), Constraint::Fill(1)];
+        let aos_time_till = Utc::now().signed_duration_since(pass.pass.get_aos_datetime());
+        let los_time_till = Utc::now().signed_duration_since(pass.pass.get_los_datetime());
+        let mut pass_text = vec![
+            Row::new(vec![
+                format!("Station: {}", pass.station),
+                format!(
+                    "Time to AOS: T{}",
+                    strf_seconds_small(aos_time_till.num_seconds())
+                ),
+            ]),
+            Row::new(vec![
+                format!(
+                    "Time to TME: T{}",
+                    strf_seconds_small(
+                        Utc::now()
+                            .signed_duration_since(pass.pass.get_tme_datetime())
+                            .num_seconds()
+                    )
+                ),
+                format!(
+                    "Time to LOS: T{}",
+                    strf_seconds_small(los_time_till.num_seconds())
+                ),
+            ]),
+        ];
         if Utc::now().signed_duration_since(pass.pass.get_aos_datetime()) > TimeDelta::zero() {
+            let [table_space, bar_space] =
+                Layout::vertical([Constraint::Length(2), Constraint::Length(1)]).areas(met_inner);
+            let pass_duration =
+                (pass.pass.get_los_datetime() - pass.pass.get_aos_datetime()).num_seconds();
+            let current_progress_seconds = Utc::now()
+                .signed_duration_since(pass.pass.get_aos_datetime())
+                .num_seconds();
+            frame.render_widget(Table::new(pass_text, widths), table_space);
+            frame.render_widget(
+                Gauge::default().ratio(current_progress_seconds as f64 / pass_duration as f64),
+                bar_space,
+            );
         } else {
-            let aos_time_till = Utc::now().signed_duration_since(pass.pass.get_aos_datetime());
-            let los_time_till = Utc::now().signed_duration_since(pass.pass.get_los_datetime());
-            let pass_text = vec![
-                Row::new(vec![
-                    format!("Station: {}", pass.station),
-                    format!(
-                        "Time to AOS: T{}",
-                        strf_seconds_small(aos_time_till.num_seconds())
-                    ),
-                ]),
-                Row::new(vec![
-                    format!(
-                        "Time to TME: T{}",
-                        strf_seconds_small(
-                            Utc::now()
-                                .signed_duration_since(pass.pass.get_tme_datetime())
-                                .num_seconds()
-                        )
-                    ),
-                    format!(
-                        "Time to LOS: T{}",
-                        strf_seconds_small(los_time_till.num_seconds())
-                    ),
-                ]),
-                Row::new(vec![
-                    format!("Max. Elevation: {:.2}deg", pass.pass.get_max_elevation()),
-                    format!(
-                        "Duration: {}sec",
-                        (pass.pass.get_los_datetime() - pass.pass.get_aos_datetime()).num_seconds()
-                    ),
-                ]),
-            ];
+            pass_text.push(Row::new(vec![
+                format!("Max. Elevation: {:.2}deg", pass.pass.get_max_elevation()),
+                format!(
+                    "Duration: {}sec",
+                    (pass.pass.get_los_datetime() - pass.pass.get_aos_datetime()).num_seconds()
+                ),
+            ]));
             frame.render_widget(Table::new(pass_text, widths), met_inner);
         }
     }
