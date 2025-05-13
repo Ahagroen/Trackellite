@@ -88,9 +88,11 @@ pub fn update(model: &mut Model, message: Message) {
                             ) //make configurable
                         }
                         for i in &passes {
-                            info!("{:?}", i)
+                            debug!("{:?}", i)
                         }
                     }
+                    passes.sort_by(|a, b| a.pass.get_aos().cmp(&b.pass.get_aos()));
+                    info!("Updated Passes!");
                     model.upcoming_passes = passes;
                 }
             }
