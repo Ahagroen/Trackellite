@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use app::{get_gs_cache, get_sat_cache, handle_event, update};
 use arboard::Clipboard;
 use chrono::{DateTime, Utc};
@@ -21,18 +23,19 @@ fn main() -> Result<()> {
     initialize_logging()?;
     color_eyre::install()?;
     let mut terminal = init();
-    let mut model = Model::default();
+    let model = Rc::new(RefCell::new(Model::default()));
     info!("Loaded Model");
-    while !model.exit {
-        terminal.draw(|f| view(&mut model, f))?;
-        let mut current_msg = handle_event(&model)?;
-        while current_msg.is_some() {
-            current_msg = update(&mut model, current_msg.unwrap());
+    while !&model.borrow().exit {
+        terminal.draw(|f| view(Rc::clone(&model), f))?;
+        let current_msg = handle_event(Rc::clone(&model))?;
+        if current_msg.is_some() {
+            update(Rc::clone(&model), current_msg.unwrap());
         }
     }
     restore();
     Ok(())
 }
+#[derive(Clone)]
 enum ListMovement {
     Up,
     Down,
@@ -40,12 +43,14 @@ enum ListMovement {
     Right,
     Select,
 }
+#[derive(Clone)]
 enum SatList {
     ListMovement(ListMovement),
     CopyTLE,
     FetchTLE,
     AddSatellite,
 }
+#[derive(Clone)]
 enum AddSatMsg {
     ToggleEditing,
     StopEditing,
@@ -73,6 +78,7 @@ impl Default for AddSatState {
         }
     }
 }
+#[derive(Clone)]
 enum Message {
     Close,
     ToggleSatConfig,
@@ -82,6 +88,7 @@ enum Message {
     GSConfigMsg(GSConfigMsg),
     PropagatePasses,
 }
+#[derive(Clone)]
 enum GSConfigMsg {
     ListMovement(ListMovement),
     Back,
@@ -257,7 +264,7 @@ struct TLGroundStation {
 #[derive(Debug, Clone)]
 struct TLPass {
     pass: Pass,
-    station: String,
+    station: GroundStation,
 }
 mod celestrak_date {
     use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
