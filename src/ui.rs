@@ -5,9 +5,11 @@ use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Position, Rect},
     style::{Color, Style, Stylize},
+    symbols,
     text::Line,
     widgets::{
-        Axis, Block, Borders, Chart, Clear, Dataset, Gauge, List, Paragraph, Row, Table, Wrap,
+        self, Axis, Block, Borders, Chart, Clear, Dataset, Gauge, List, Paragraph, Row, Table,
+        Wrap,
         canvas::{Canvas, Map, MapResolution},
     },
 };
@@ -210,7 +212,7 @@ fn strf_seconds_small(seconds: i64) -> String {
 }
 fn view_top_bar(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let draw_area = area.unwrap_or(frame.area());
-    let [met_time, center, realtime] = Layout::horizontal([
+    let [realtime, center, met_time] = Layout::horizontal([
         Constraint::Fill(1),
         Constraint::Percentage(50),
         Constraint::Fill(1),
@@ -264,7 +266,7 @@ fn view_top_bar(model: &Model, frame: &mut Frame, area: Option<Rect>) {
         let los_time_till = Utc::now().signed_duration_since(pass.pass.get_los_datetime());
         let mut pass_text = vec![
             Row::new(vec![
-                format!("Station: {}", pass.station.name),
+                "Upcoming Pass".into(),
                 format!(
                     "Time to AOS: T{}",
                     strf_seconds_small(aos_time_till.num_seconds())
@@ -293,11 +295,14 @@ fn view_top_bar(model: &Model, frame: &mut Frame, area: Option<Rect>) {
             let current_progress_seconds = Utc::now()
                 .signed_duration_since(pass.pass.get_aos_datetime())
                 .num_seconds();
+            let ratio;
+            if current_progress_seconds >= pass_duration {
+                ratio = 100.0
+            } else {
+                ratio = current_progress_seconds as f64 / pass_duration as f64
+            }
             frame.render_widget(Table::new(pass_text, widths), table_space);
-            frame.render_widget(
-                Gauge::default().ratio(current_progress_seconds as f64 / pass_duration as f64),
-                bar_space,
-            );
+            frame.render_widget(Gauge::default().ratio(ratio), bar_space);
         } else {
             pass_text.push(Row::new(vec![
                 format!("Max. Elevation: {:.2}deg", pass.pass.get_max_elevation()),
@@ -364,7 +369,7 @@ fn view_ground_track(model: &Model, frame: &mut Frame, area: Option<Rect>) {
 fn view_sat_data(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let draw_area = area.unwrap_or(frame.area());
     let [sat_stats, pass_stats] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Percentage(50)]).areas(draw_area);
+        Layout::vertical([Constraint::Fill(1), Constraint::Percentage(60)]).areas(draw_area);
     render_sat_block(model, frame, sat_stats);
     render_pass_block(model, frame, pass_stats);
 }
@@ -384,34 +389,29 @@ fn render_pass_block(model: &Model, frame: &mut Frame, draw_area: Rect) {
                 .satellite
                 .seconds_since_epoch(&Utc::now()),
         );
-        let list_text = vec![
+        let mut list_text = vec![
             Line::from(format!("Next Pass Station: {}", upcoming_pass.station.name)),
             Line::from(format!("Elevation: {:.2}deg", pointing.elevation)),
             Line::from(format!("Azimuth: {:.2}deg", pointing.azimuth)),
             Line::from(format!("Range: {:.2}km", pointing.range)),
+            Line::from(""), //WIll be local time at Ground station
             Line::from(""),
             Line::from("Upcoming Passes").centered().underlined(),
-            Line::from(format!(
-                " {}: AOS T{}",
-                &model.upcoming_passes[0].station.name,
-                &model.upcoming_passes[0].pass.get_aos_datetime()
-            )),
-            Line::from(format!(
-                " {}: AOS T{}",
-                &model.upcoming_passes[1].station.name,
-                &model.upcoming_passes[1].pass.get_aos_datetime()
-            )),
-            Line::from(format!(
-                " {}: AOS T{}",
-                &model.upcoming_passes[2].station.name,
-                &model.upcoming_passes[2].pass.get_aos_datetime()
-            )),
-            Line::from(format!(
-                " {}: AOS T{}",
-                &model.upcoming_passes[3].station.name,
-                &model.upcoming_passes[3].pass.get_aos_datetime()
-            )),
         ];
+        for i in model.upcoming_passes.iter().take(5) {
+            list_text.push(Line::from(format!(
+                "{}: AOS {}(UTC)",
+                i.station.name,
+                i.pass.get_aos_datetime().format("%y-%m-%d %H:%M")
+            )));
+            list_text.push(Line::from(format!(
+                "    Max. El: {:.1}deg, Duration: {}sec",
+                i.pass.get_max_elevation(),
+                i.pass.get_duration_sec()
+            )));
+            list_text.push("".into())
+        }
+
         frame.render_widget(List::new(list_text), inner_area);
     } else {
         let [_, text_area, _] = Layout::vertical([
@@ -485,7 +485,7 @@ fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area
     let tle_block = Block::new()
         .borders(Borders::all())
         .title_top("TLE")
-        .border_type(ratatui::widgets::BorderType::Rounded)
+        .border_type(widgets::BorderType::Rounded)
         .border_style(Style::new().fg(Color::Cyan));
     if model.current_state == AppState::SatAddition {
         if model.sat_config.add_sat.selected == AddSatSel::NoradID {
@@ -497,13 +497,13 @@ fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area
             let norad_id_render;
             if model.sat_config.add_sat.editing {
                 norad_id_render = vec![
-                    "Satellite Norad ID:".into(),
+                    "Satellite Norad ID: ".into(),
                     norad_id.into(),
                     open_norad_id.slow_blink(),
                 ];
             } else {
                 norad_id_render = vec![
-                    "Satellite Norad ID:".into(),
+                    "Satellite Norad ID: ".into(),
                     norad_id.reversed(),
                     open_norad_id.reversed(),
                 ];
@@ -557,7 +557,7 @@ fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area
                     .as_secs() as i64;
                 let base_offset = current_time - sat.satellite.get_epoch().timestamp();
                 details = Paragraph::new(format!(
-                    "Satellite Name: {}\nSatellite Norad ID: {}\nSatellite Catelog ID: {}\nSatellite Registered Owner:{}\nSatellite Launch Date:{}\nCurrent TLE age: {}\n",
+                    "Satellite Name: {}\nSatellite Norad ID: {}\nSatellite Catelog ID: {}\nSatellite Country: {}\nSatellite Launch Date: {}\nCurrent TLE age: {}\n",
                     sat.satellite.get_name(),
                     sat.satellite.get_norad_id(),
                     sat.metadata.object_id,
@@ -659,20 +659,61 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
     let mut paths_list: Vec<Dataset> = vec![];
     let mut current_start: usize = 0;
     let mut current_end: usize = 0;
+    let direction;
+    let points_less = points
+        .iter()
+        .enumerate()
+        .filter(|(a, b)| {
+            let next_point = points.get(a.clone() + 1);
+            if next_point.is_none() {
+                false
+            } else {
+                b.0 < next_point.unwrap().0
+            }
+        })
+        .count();
+    let points_more = points
+        .iter()
+        .enumerate()
+        .filter(|(a, b)| {
+            let next_point = points.get(a.clone() + 1);
+            if next_point.is_none() {
+                false
+            } else {
+                b.0 > next_point.unwrap().0
+            }
+        })
+        .count();
+    if points_less > points_more {
+        direction = true;
+        debug!("Direction: {direction}");
+    } else {
+        direction = false;
+        debug!("Direction: {direction}: points_less: {points_less}, points_more: {points_more}");
+    }
     for i in &points {
-        if prev.is_some() && prev.unwrap() > i.0 {
-            let dataset = Dataset::default()
-                .name(working_satellites.satellite.get_name())
-                .marker(ratatui::symbols::Marker::Braille)
-                .graph_type(ratatui::widgets::GraphType::Line)
-                .cyan()
-                .data(&points[current_start..current_end]);
-            paths_list.push(dataset);
-            debug!(
-                "End of Orbit! start_index: {}, end_index: {}",
-                current_start, current_end
-            );
-            current_start = current_end + 1;
+        if direction {
+            if prev.is_some() && prev.unwrap() > i.0 {
+                let dataset = Dataset::default()
+                    .name(working_satellites.satellite.get_name())
+                    .marker(symbols::Marker::Braille)
+                    .graph_type(widgets::GraphType::Line)
+                    .cyan()
+                    .data(&points[current_start..current_end]);
+                paths_list.push(dataset);
+                current_start = current_end + 1;
+            }
+        } else {
+            if prev.is_some() && prev.unwrap() < i.0 {
+                let dataset = Dataset::default()
+                    .name(working_satellites.satellite.get_name())
+                    .marker(symbols::Marker::Braille)
+                    .graph_type(widgets::GraphType::Line)
+                    .cyan()
+                    .data(&points[current_start..current_end]);
+                paths_list.push(dataset);
+                current_start = current_end + 1;
+            }
         }
         // debug!("current x: {}, last x: {:?}", i.0, prev);
         current_end += 1;
@@ -680,8 +721,8 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
     }
     let dataset = Dataset::default()
         .name(working_satellites.satellite.get_name())
-        .marker(ratatui::symbols::Marker::Braille)
-        .graph_type(ratatui::widgets::GraphType::Line)
+        .marker(symbols::Marker::Braille)
+        .graph_type(widgets::GraphType::Line)
         .data(&points[current_start..current_end])
         .cyan();
     paths_list.push(dataset);
