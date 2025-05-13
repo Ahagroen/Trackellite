@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use app::{get_gs_cache, get_sat_cache, handle_event, update};
 use arboard::Clipboard;
 use chrono::{DateTime, Utc};
@@ -23,13 +21,13 @@ fn main() -> Result<()> {
     initialize_logging()?;
     color_eyre::install()?;
     let mut terminal = init();
-    let model = Rc::new(RefCell::new(Model::default()));
+    let mut model = Model::default();
     info!("Loaded Model");
-    while !&model.borrow().exit {
-        terminal.draw(|f| view(Rc::clone(&model), f))?;
-        let current_msg = handle_event(Rc::clone(&model))?;
+    while !&model.exit {
+        terminal.draw(|f| view(&mut model, f))?;
+        let current_msg = handle_event(&model)?;
         if current_msg.is_some() {
-            update(Rc::clone(&model), current_msg.unwrap());
+            update(&mut model, current_msg.unwrap());
         }
     }
     restore();

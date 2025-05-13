@@ -8,71 +8,60 @@ use ratatui::crossterm::event::{self, Event, KeyCode};
 use serde_json::{from_reader, to_string, to_writer};
 use sky_track::{GroundStation, Satellite, find_passes_datetime};
 use std::{
-    cell::{Cell, RefCell},
+    cell::Cell,
     collections::HashMap,
     fs::File,
     io::{BufReader, BufWriter},
-    rc::Rc,
     time::Duration,
 };
 use tracing::{debug, info, warn};
 use ureq::get;
-pub fn update(model: Rc<RefCell<Model>>, message: Message) {
+pub fn update(model: &mut Model, message: Message) {
     let message: Cell<Option<Message>> = Cell::new(Some(message));
     while let Some(msg) = message.take() {
         let msg_inner = msg.clone();
         drop(msg);
         match msg_inner {
             Message::Close => {
-                let mut mut_model = model.borrow_mut();
-
-                mut_model.exit = true;
+                model.exit = true;
             }
             Message::ToggleSatConfig => {
-                let mut mut_model = model.borrow_mut();
-                if !(mut_model.current_state == AppState::SatSelect) {
+                if !(model.current_state == AppState::SatSelect) {
                     info!("Opening Satellite configuration picker");
-                    mut_model.current_state = AppState::SatSelect;
+                    model.current_state = AppState::SatSelect;
                 } else {
                     info!("Closing Satellite configuration picker");
-                    mut_model.sat_config.current_message = CurrentMsg {
+                    model.sat_config.current_message = CurrentMsg {
                         error: false,
                         text: "".to_string(),
                     };
-                    mut_model.current_state = AppState::Base;
+                    model.current_state = AppState::Base;
                     message.set(Some(Message::PropagatePasses))
                 }
             }
-            Message::SatListMessage(x) => {
-                let mut mut_model = model.borrow_mut();
-                message.set(parse_satlist_msg(&mut mut_model, x))
-            }
+            Message::SatListMessage(x) => message.set(parse_satlist_msg(model, x)),
             Message::AddSatMessage(add_sat_msg) => {
-                let mut mut_model = model.borrow_mut();
-                message.set(parse_addsat_msg(&mut mut_model, add_sat_msg))
+                message.set(parse_addsat_msg(model, add_sat_msg))
             }
             Message::ToggleGSConfig => {
-                let mut mut_model = model.borrow_mut();
-                if mut_model.current_state != AppState::GSConfig {
-                    mut_model.current_state = AppState::GSConfig;
+                if model.current_state != AppState::GSConfig {
+                    model.current_state = AppState::GSConfig;
                 } else {
-                    if cache_gs(mut_model.station_config.station_list.clone()).is_err() {
-                        mut_model.station_config.current_msg =
+                    if cache_gs(model.station_config.station_list.clone()).is_err() {
+                        model.station_config.current_msg =
                             CurrentMsg::error("Unable to save Ground Stations");
                     } else {
-                        mut_model.current_state = AppState::Base;
+                        model.current_state = AppState::Base;
                         message.set(Some(Message::PropagatePasses))
                     }
                 }
             }
             Message::GSConfigMsg(gsconfig_msg) => {
-                let mut mut_model = model.borrow_mut();
-                message.set(parse_gsconfig_msg(&mut mut_model, gsconfig_msg))
+                message.set(parse_gsconfig_msg(model, gsconfig_msg))
             }
             Message::PropagatePasses => {
                 {
-                    let model_ref = model.borrow();
-                    let current_stations: Vec<GroundStation> = model_ref
+                    let current_stations: Vec<GroundStation> = model
                         .station_config
                         .station_list
                         .iter()
@@ -80,12 +69,12 @@ pub fn update(model: Rc<RefCell<Model>>, message: Message) {
                         .map(|x| x.station.clone())
                         .collect();
                     let mut passes: Vec<TLPass> = vec![];
-                    if current_stations.len() == 0 || model_ref.current_satellite.is_none() {
+                    if current_stations.len() == 0 || model.current_satellite.is_none() {
                     } else {
                         for i in current_stations {
                             passes.append(
                                 &mut find_passes_datetime(
-                                    &model_ref.current_satellite.as_ref().unwrap().satellite,
+                                    &model.current_satellite.as_ref().unwrap().satellite,
                                     &i,
                                     &Utc::now(),
                                     &Utc::now().checked_add_days(Days::new(3)).unwrap(),
@@ -102,8 +91,7 @@ pub fn update(model: Rc<RefCell<Model>>, message: Message) {
                             info!("{:?}", i)
                         }
                     }
-                    let mut model_mut = model.borrow_mut();
-                    model_mut.upcoming_passes = passes;
+                    model.upcoming_passes = passes;
                 }
             }
         }
@@ -516,8 +504,7 @@ fn parse_satlist_msg(model: &mut Model, x: SatList) -> Option<Message> {
     }
 }
 
-pub fn handle_event(model: Rc<RefCell<Model>>) -> Result<Option<Message>> {
-    let model = model.borrow();
+pub fn handle_event(model: &Model) -> Result<Option<Message>> {
     if event::poll(Duration::from_millis(250))? {
         if let Event::Key(key) = event::read()? {
             if key.kind == event::KeyEventKind::Press {
