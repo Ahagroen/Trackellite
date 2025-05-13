@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    rc::Rc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{Datelike, Local, TimeDelta, Utc};
 use ratatui::{
@@ -19,30 +15,28 @@ use tracing::{debug, warn};
 
 use crate::{AddSatSel, AppState, GSconfigState, Model};
 
-pub fn view(model: Rc<RefCell<Model>>, frame: &mut Frame) {
+pub fn view(model: &mut Model, frame: &mut Frame) {
     {
-        let ref_model = model.borrow();
         let [top_bar, core_bar, bottom_bar] = Layout::vertical([
             Constraint::Length(5),
             Constraint::Fill(1),
             Constraint::Length(1),
         ])
         .areas(frame.area());
-        view_top_bar(&ref_model, frame, Some(top_bar));
-        view_app_border(&ref_model, frame, Some(bottom_bar));
+        view_top_bar(model, frame, Some(top_bar));
+        view_app_border(model, frame, Some(bottom_bar));
         let [ground_track_area, sat_stat_area] =
             Layout::horizontal([Constraint::Fill(1), Constraint::Length(41)]).areas(core_bar);
-        view_ground_track(&ref_model, frame, Some(ground_track_area));
-        view_sat_data(&ref_model, frame, Some(sat_stat_area));
+        view_ground_track(model, frame, Some(ground_track_area));
+        view_sat_data(model, frame, Some(sat_stat_area));
     }
     {
-        let mut mut_model = model.borrow_mut();
-        if mut_model.current_state == AppState::SatSelect
-            || mut_model.current_state == AppState::SatAddition
+        if model.current_state == AppState::SatSelect
+            || model.current_state == AppState::SatAddition
         {
-            view_popup_sat_config(&mut mut_model, frame);
-        } else if mut_model.current_state == AppState::GSConfig {
-            view_popup_gs_config(&mut mut_model, frame)
+            view_popup_sat_config(model, frame);
+        } else if model.current_state == AppState::GSConfig {
+            view_popup_gs_config(model, frame)
         }
     }
 }
