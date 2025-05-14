@@ -37,7 +37,7 @@ pub fn handle_event(model: &Model) -> Result<Option<Message>> {
         }
     } else if let Some(x) = model.upcoming_passes.get(0) {
         if x.pass.get_los_datetime().signed_duration_since(Utc::now())
-            < TimeDelta::new(-1800, 0).unwrap()
+            < TimeDelta::new(-30, 0).unwrap()
         {
             info!("Re-propagating to remove old pass");
             return Ok(Some(Message::PropagatePasses));
