@@ -97,7 +97,7 @@ pub fn view_top_bar(model: &Model, frame: &mut Frame, area: Option<Rect>) {
                 .num_seconds();
             let ratio;
             if current_progress_seconds >= pass_duration {
-                ratio = 100.0
+                ratio = 1.0
             } else {
                 ratio = current_progress_seconds as f64 / pass_duration as f64
             }
