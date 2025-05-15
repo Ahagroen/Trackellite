@@ -103,8 +103,8 @@ fn render_sat_block(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
                 x.satellite.get_period() / 60.0
             )),
             Line::from(""),
-            Line::from("Satellite in Sunlight"),
-            Line::from("Time to eclipse: XX:XX:XX"),
+            // Line::from("Satellite in Sunlight"),
+            // Line::from("Time to eclipse: XX:XX:XX"),
         ];
         frame.render_widget(List::new(text), inner_area)
     } else {
