@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use chrono::Utc;
+use color_eyre::eyre::eyre;
 use serde::Deserialize;
 use serde::Serialize;
 use sky_track::Pass;
@@ -8,7 +9,13 @@ use sky_track::GroundStation;
 
 use sky_track::Satellite;
 
+#[cfg(not(target_arch = "wasm32"))]
 use arboard::Clipboard;
+
+#[cfg(target_arch = "wasm32")]
+use futures::executor;
+#[cfg(target_arch = "wasm32")]
+use ratzilla::web_sys;
 
 use ratatui::widgets::ListState;
 
@@ -18,12 +25,17 @@ use color_eyre::Result;
 
 use ratatui::widgets::TableState;
 
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::crossterm::event::KeyCode;
+
+#[cfg(target_arch = "wasm32")]
+use ratzilla::event::KeyCode;
+
 use tracing::debug;
 use tracing::warn;
 
-use crate::app::file_cache::get_gs_cache;
-use crate::app::file_cache::get_sat_cache;
+use crate::app::file_cache::cache::get_gs_cache;
+use crate::app::file_cache::cache::get_sat_cache;
 
 #[derive(Clone)]
 pub enum ListMovement {
@@ -171,7 +183,7 @@ impl GSconfiguration {
 pub struct SatSelection {
     pub satellite_list: Vec<TLSatellite>,
     pub list_state: ListState,
-    pub clipboard: Clipboard,
+    pub clipboard: TLClipboard,
     pub current_message: CurrentMsg,
     pub add_sat: AddSatState,
 }
@@ -198,7 +210,7 @@ impl Default for SatSelection {
         SatSelection {
             satellite_list: satellites,
             list_state: ListState::default(),
-            clipboard: Clipboard::new().expect("Unable to access clipboard"),
+            clipboard: TLClipboard::new(),
             current_message,
             add_sat: AddSatState::default(),
         }
@@ -315,5 +327,63 @@ pub mod celestrak_date {
             .map_err(Error::custom)?
             .and_time(NaiveTime::from_num_seconds_from_midnight_opt(0, 0).unwrap());
         Ok(DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc))
+    }
+}
+
+pub struct TLClipboard {
+    #[cfg(not(target_arch = "wasm32"))]
+    clipboard: Clipboard,
+    #[cfg(target_arch = "wasm32")]
+    clipboard: WebClipboard,
+}
+impl TLClipboard {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn new() -> TLClipboard {
+        TLClipboard {
+            clipboard: Clipboard::new().expect("Could not open clipboard"),
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    pub fn new() -> TLClipboard {
+        TLClipboard {
+            clipboard: WebClipboard::default(),
+        }
+    }
+    pub fn set_text(&mut self, text: &str) -> Result<()> {
+        self.set_text_adjusted(text)
+    }
+    fn set_text_adjusted(&mut self, text: &str) -> Result<()> {
+        self.clipboard
+            .set_text(text)
+            .map_err(|_| eyre!("Failed to set clipboard text"))
+    }
+    pub fn get_text(&mut self) -> String {
+        self.clipboard.get_text().unwrap_or_default()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+#[derive(Default)]
+struct WebClipboard {}
+#[cfg(target_arch = "wasm32")]
+impl WebClipboard {
+    pub fn set_text(&self, text: &str) -> Result<()> {
+        Ok(executor::block_on(self.set_text_inner(text)))
+    }
+    pub fn get_text(&self) -> Result<String> {
+        Ok(executor::block_on(self.get_text_inner()))
+    }
+    async fn set_text_inner(&self, text: &str) {
+        let window = web_sys::window().unwrap();
+        let nav = window.navigator().clipboard();
+        let promise = nav.write_text(text);
+        wasm_bindgen_futures::JsFuture::from(promise).await.unwrap();
+    }
+    async fn get_text_inner(&self) -> String {
+        let window = web_sys::window().unwrap();
+        let nav = window.navigator().clipboard();
+        let promise = nav.read_text();
+        let result = wasm_bindgen_futures::JsFuture::from(promise).await.unwrap();
+        result.as_string().unwrap_or_default()
     }
 }

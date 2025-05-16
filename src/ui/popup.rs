@@ -13,7 +13,7 @@ use crate::structs::{AddSatSel, AppState, GSconfigState, Model};
 
 use super::strf_seconds;
 
-pub fn view_popup_gs_config(model: &mut Model, frame: &mut Frame<'_>) {
+pub fn view_popup_gs_config(model: &Model, frame: &mut Frame<'_>) {
     let area = popup_area(frame.area(), 35, 50);
     frame.render_widget(Clear, area);
     let outer_block =
@@ -123,7 +123,8 @@ pub fn view_popup_gs_config(model: &mut Model, frame: &mut Frame<'_>) {
                 .cell_highlight_style(Style::new().underlined())
         }
     };
-    frame.render_stateful_widget(table_widget, gs_area, &mut model.station_config.table_state);
+    let mut current_table_state = model.station_config.table_state.clone();
+    frame.render_stateful_widget(table_widget, gs_area, &mut current_table_state);
     if model.station_config.current_msg.error {
         frame.render_widget(
             Line::from(model.station_config.current_msg.text.as_ref()).red(),
@@ -137,7 +138,7 @@ pub fn view_popup_gs_config(model: &mut Model, frame: &mut Frame<'_>) {
     }
 }
 
-pub fn view_popup_sat_config(model: &mut Model, frame: &mut Frame) {
+pub fn view_popup_sat_config(model: &Model, frame: &mut Frame) {
     let area = popup_area(frame.area(), 65, 50);
     frame.render_widget(Clear, area);
     let outer_block = Block::new().title_top(Line::from("Satellite Configuration").centered());
@@ -164,7 +165,7 @@ pub fn view_popup_sat_config(model: &mut Model, frame: &mut Frame) {
         );
     }
 }
-fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area: Rect) {
+fn render_sat_list_details(model: &Model, frame: &mut Frame<'_>, detail_area: Rect) {
     let [text_area, tle_area] =
         Layout::vertical([Constraint::Fill(1), Constraint::Percentage(30)]).areas(detail_area);
 
@@ -268,7 +269,7 @@ fn render_sat_list_details(model: &mut Model, frame: &mut Frame<'_>, detail_area
 }
 
 fn render_sat_list(
-    model: &mut Model,
+    model: &Model,
     frame: &mut Frame<'_>,
     left_side_block: Block<'_>,
     list_area: Rect,
@@ -294,7 +295,8 @@ fn render_sat_list(
     let list = List::new(items)
         .block(left_side_block)
         .highlight_symbol(">>");
-    frame.render_stateful_widget(list, list_area, &mut model.sat_config.list_state);
+    let mut current_list_state = model.sat_config.list_state.clone();
+    frame.render_stateful_widget(list, list_area, &mut current_list_state);
 }
 fn popup_area(area: Rect, percent_x: u16, percent_y: u16) -> Rect {
     let vertical = Layout::vertical([Constraint::Percentage(percent_y)]).flex(Flex::Center);

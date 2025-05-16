@@ -14,7 +14,7 @@ mod topbar;
 mod track;
 use crate::structs::{AppState, Model};
 
-pub fn view(model: &mut Model, frame: &mut Frame) {
+pub fn view(model: &Model, frame: &mut Frame) {
     {
         let [top_bar, core_bar, bottom_bar] = Layout::vertical([
             Constraint::Length(5),

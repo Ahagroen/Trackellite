@@ -1,4 +1,9 @@
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::crossterm::event::KeyCode;
+
+#[cfg(target_arch = "wasm32")]
+use ratzilla::event::KeyCode;
+
 use sky_track::GroundStation;
 use tracing::warn;
 

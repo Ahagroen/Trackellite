@@ -1,16 +1,8 @@
-use ratatui::crossterm::event;
-use ratatui::crossterm::event::KeyCode;
+#[cfg(not(target_arch = "wasm32"))]
+use ratatui::crossterm::event::{self, Event, KeyCode};
 
-use chrono::TimeDelta;
-
-use chrono::Utc;
-
-use ratatui::crossterm::event::Event;
-use tracing::info;
-
-use std::time::Duration;
-
-use color_eyre::Result;
+#[cfg(target_arch = "wasm32")]
+use ratzilla::event::{self, KeyCode, KeyEvent};
 
 use crate::structs::AddSatMsg;
 use crate::structs::AppState;
@@ -20,8 +12,17 @@ use crate::structs::ListMovement;
 use crate::structs::Message;
 use crate::structs::Model;
 use crate::structs::SatList;
+use color_eyre::Result;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn handle_event(model: &Model) -> Result<Option<Message>> {
+    use chrono::Utc;
+
+    use chrono::TimeDelta;
+    use tracing::info;
+
+    use std::time::Duration;
+
     if event::poll(Duration::from_millis(250))? {
         if let Event::Key(key) = event::read()? {
             if key.kind == event::KeyEventKind::Press {
@@ -44,6 +45,22 @@ pub fn handle_event(model: &Model) -> Result<Option<Message>> {
         }
     }
     Ok(None)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn handle_event(model: &mut Model, key_event: KeyEvent) {
+    use super::update;
+
+    let message;
+    match model.current_state {
+        AppState::Base => message = handle_key_base(key_event),
+        AppState::SatSelect => message = handle_key_sat_config(key_event),
+        AppState::SatAddition => {
+            message = handle_key_sat_addition(key_event, &model);
+        }
+        AppState::GSConfig => message = handle_key_gs_config(key_event, &model),
+    }
+    update(model, message.unwrap());
 }
 
 fn handle_key_gs_config(key: event::KeyEvent, model: &Model) -> Option<Message> {

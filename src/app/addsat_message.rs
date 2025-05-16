@@ -1,8 +1,13 @@
-use crate::app::file_cache::{cache_tle, get_sup_data_spacetrack, get_tle_spacetrack};
+use crate::app::file_cache::cache::{cache_tle, get_sup_data_spacetrack, get_tle_spacetrack};
 use crate::structs::{
     AddSatMsg, AddSatSel, AppState, CurrentMsg, Message, MetaData, Model, TLSatellite,
 };
+#[cfg(not(target_arch = "wasm32"))]
 use ratatui::crossterm::event::KeyCode;
+
+#[cfg(target_arch = "wasm32")]
+use ratzilla::event::KeyCode;
+
 use sky_track::Satellite;
 use tracing::{info, warn};
 
@@ -32,6 +37,7 @@ pub fn parse_addsat_msg(model: &mut Model, add_sat_msg: AddSatMsg) -> Option<Mes
                         }
                         satellite = Satellite::new_from_tle(y.as_str())
                     } else {
+                        warn!("Couldn't get sup data from spacetrack");
                         model.sat_config.current_message =
                             CurrentMsg::error("Failed to collect TLE from celestrak");
                         return None;
@@ -39,6 +45,7 @@ pub fn parse_addsat_msg(model: &mut Model, add_sat_msg: AddSatMsg) -> Option<Mes
                 } else {
                     model.sat_config.add_sat.editing = false;
                     model.sat_config.add_sat.text = "".to_string();
+                    warn!("Couldn't read NORAD ID");
                     model.sat_config.current_message = CurrentMsg::error("Could not read NORAD ID");
                     return None;
                 }
@@ -46,6 +53,7 @@ pub fn parse_addsat_msg(model: &mut Model, add_sat_msg: AddSatMsg) -> Option<Mes
                 satellite = Satellite::new_from_tle(&model.sat_config.add_sat.text);
                 let rs_metadata = get_sup_data_spacetrack(&satellite.get_norad_id().to_string());
                 if rs_metadata.is_err() {
+                    warn!("Couldn't get SUP data from celestrak");
                     model.sat_config.current_message =
                         CurrentMsg::error("Failed to collect SUP Data from celestrak");
                     return None;
@@ -58,6 +66,7 @@ pub fn parse_addsat_msg(model: &mut Model, add_sat_msg: AddSatMsg) -> Option<Mes
                 metadata,
             });
             if cache_tle(model.sat_config.satellite_list.as_ref()).is_err() {
+                warn!("Unable to cache TLE data");
                 model.sat_config.current_message = CurrentMsg::error("Unable to cache TLE data");
                 return None;
             }
@@ -103,13 +112,12 @@ pub fn parse_addsat_msg(model: &mut Model, add_sat_msg: AddSatMsg) -> Option<Mes
         }
         AddSatMsg::PasteTLE => {
             if model.sat_config.add_sat.selected == AddSatSel::TLEBox {
-                if let Ok(x) = model.sat_config.clipboard.get_text() {
-                    if x.lines().count() <= 3 {
-                        if x.lines().find(|y| y.len() < 70).is_none() {
-                            model.sat_config.add_sat.editing = true;
-                            model.sat_config.add_sat.text = x;
-                            model.sat_config.current_message = CurrentMsg::message("Pasted TLE");
-                        }
+                let x = model.sat_config.clipboard.get_text();
+                if x.lines().count() <= 3 && x.lines().count() > 0 {
+                    if x.lines().find(|y| y.len() < 70).is_none() {
+                        model.sat_config.add_sat.editing = true;
+                        model.sat_config.add_sat.text = x;
+                        model.sat_config.current_message = CurrentMsg::message("Pasted TLE");
                     }
                 }
 
