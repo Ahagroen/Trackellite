@@ -104,7 +104,6 @@ pub mod cache {
     use crate::structs::{MetaData, TLSatellite};
 
     use color_eyre::eyre::eyre;
-    use futures::executor;
     use serde_json::from_str;
     use serde_json::to_string;
     use tracing::debug;
@@ -112,14 +111,16 @@ pub mod cache {
     use wasm_bindgen::JsCast;
     use wasm_bindgen::JsValue;
     use wasm_bindgen_futures::JsFuture;
+    use wasm_bindgen_futures::spawn_local;
     use web_sys::Request;
     use web_sys::RequestInit;
     use web_sys::Response;
 
     use crate::structs::TLGroundStation;
 
-    use std::borrow::Borrow;
     use std::collections::HashMap;
+    use std::sync::Arc;
+    use std::sync::Mutex;
 
     use color_eyre::{Result, eyre::Error};
     pub fn cache_tle(data: &Vec<TLSatellite>) -> Result<()> {
@@ -169,32 +170,71 @@ pub mod cache {
             "https://celestrak.org/satcat/records.php?CATNR={}",
             norad_id
         );
-        let response = executor::block_on(get_request(&url))?;
+        let response = get_request(&url)?;
         let parsed_result: MetaData = serde_wasm_bindgen::from_value(response)
             .map_err(|_| Error::msg("Unable to deserialize metadata"))?;
         Ok(parsed_result)
     }
-    async fn get_request(url: &str) -> Result<JsValue> {
+    fn get_request(url: &str) -> Result<JsValue> {
         let opts = RequestInit::new();
         debug!("Starting request");
         opts.set_method("GET");
         let request = Request::new_with_str_and_init(url, &opts).unwrap();
         let window = web_sys::window().unwrap();
-        let response = JsFuture::from(window.fetch_with_request(&request))
-            .await
-            .map_err(|_| Error::msg("unable to complete request"))?;
-        debug!("Got Response");
-        let resp: Response = response
-            .dyn_into()
-            .map_err(|_| Error::msg("unable to complete request"))?;
-        debug!("Got response");
-        let json = JsFuture::from(
-            resp.json()
-                .map_err(|_| Error::msg("unable to complete request"))?,
-        )
-        .await
-        .map_err(|_| Error::msg("unable to complete request"))?;
-        Ok(json)
+        debug!("Got Window");
+        let response_outer: Arc<Mutex<Option<Result<JsValue>>>> = Arc::new(Mutex::new(None));
+        let response_in = response_outer.clone();
+        let future = async move {
+            let mut response_inner = response_in.lock().unwrap();
+            let response_result = JsFuture::from(window.fetch_with_request(&request)).await;
+            let response;
+            match response_result {
+                Ok(x) => response = x,
+                Err(_) => {
+                    response_inner.replace(Err(Error::msg("unable to complete request")));
+                    return;
+                }
+            }
+            debug!("Got Response");
+            let resp: Response;
+            let resp_result = response
+                .dyn_into()
+                .map_err(|_| Error::msg("unable to complete request"));
+            match resp_result {
+                Ok(x) => resp = x,
+                Err(_) => {
+                    response_inner.replace(Err(Error::msg("unable to complete request")));
+                    return;
+                }
+            }
+            debug!("Got response");
+            let pre_json = resp.json().map_err(|_| {
+                response_inner.replace(Err(Error::msg("unable to complete request")));
+                return;
+            });
+            if pre_json.is_ok() {
+                let json = JsFuture::from(pre_json.unwrap()).await.map_err(|_| {
+                    response_inner.replace(Err(Error::msg("unable to complete request")));
+                    return;
+                });
+                if json.is_ok() {
+                    response_inner.replace(Ok(json.unwrap()));
+                }
+            };
+        };
+        spawn_local(future);
+        loop {
+            if let Ok(x) = response_outer.try_lock() {
+                if let Some(y) = x.as_ref() {
+                    debug!("Unwraped mutex guard");
+                    match y {
+                        Ok(val) => return Ok(val.clone()),
+                        Err(_) => return Err(Error::msg("unable to complete request")),
+                    }
+                } else {
+                }
+            }
+        }
     }
     pub fn get_tle_spacetrack(norad_id: u64) -> Result<String> {
         info!("Calling Celestrak: TLE");
@@ -202,7 +242,7 @@ pub mod cache {
             "https://celestrak.org/NORAD/elements/gp.php?CATNR={}&FORMAT=TLE",
             norad_id
         );
-        let response = executor::block_on(get_request(&url))?;
+        let response = get_request(&url)?;
         let parsed_result: String = serde_wasm_bindgen::from_value(response)
             .map_err(|_| Error::msg("Unable to deserialize metadata"))?;
         Ok(parsed_result)
