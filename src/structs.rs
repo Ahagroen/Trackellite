@@ -74,6 +74,8 @@ pub struct AddSatState {
     pub selected: AddSatSel,
     pub text: String,
     pub editing: bool,
+    #[cfg(target_arch = "wasm32")]
+    waiting: bool,
 }
 
 impl Default for AddSatState {
@@ -82,6 +84,8 @@ impl Default for AddSatState {
             selected: AddSatSel::NoradID,
             text: String::default(),
             editing: false,
+            #[cfg(target_arch = "wasm32")]
+            waiting: false,
         }
     }
 }
@@ -95,6 +99,14 @@ pub enum Message {
     ToggleGSConfig,
     GSConfigMsg(GSConfigMsg),
     PropagatePasses,
+    #[cfg(target_arch = "wasm32")]
+    UpdatePass,
+    #[cfg(target_arch = "wasm32")]
+    TLEResponse(String, String),
+    #[cfg(target_arch = "wasm32")]
+    SupDataResponse(String, MetaData),
+    #[cfg(target_arch = "wasm32")]
+    FetchError(String),
 }
 
 #[derive(Clone)]
@@ -190,7 +202,7 @@ pub struct SatSelection {
 
 impl Default for SatSelection {
     fn default() -> Self {
-        let sat_list = Self::load_sat_from_file();
+        let sat_list = get_sat_cache();
         let current_message;
         let satellites;
         if sat_list.is_err() {
@@ -217,25 +229,14 @@ impl Default for SatSelection {
     }
 }
 
-impl SatSelection {
-    pub fn load_sat_from_file() -> Result<Vec<TLSatellite>> {
-        let cached_tles = get_sat_cache()?;
-        debug!("Cached TLE's: {:?}", cached_tles);
-        let mut satellites = vec![];
-        for i in cached_tles.values() {
-            let data: TLSatellite = from_str(&i).unwrap();
-            satellites.push(data)
-        }
-        Ok(satellites)
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum AppState {
     Base,
     SatSelect,
     SatAddition,
     GSConfig,
+    #[cfg(target_arch = "wasm32")]
+    SatWaitingFetch,
 }
 
 pub struct Model {

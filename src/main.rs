@@ -48,6 +48,7 @@ mod web {
     use ratzilla::{CanvasBackend, WebRenderer};
     use tracing::info;
 
+    use crate::app::update;
     use crate::utils::web::initialize_logging;
     use crate::{app::key_handle_native::handle_event, structs::Model, ui::view};
     use color_eyre::Result;
@@ -62,13 +63,15 @@ mod web {
         initialize_logging()?;
         color_eyre::install()?;
         let terminal = setup()?;
+        let (tx, rx) = std::sync::mpsc::channel();
         let model = Rc::new(RefCell::new(Model::default()));
         info!("Loaded Model");
         terminal.on_key_event({
+            let key_tx = tx.clone();
             let model_state = model.clone();
             move |key_event| {
-                let mut state = model_state.borrow_mut();
-                handle_event(&mut state, key_event);
+                let state = model_state.borrow();
+                handle_event(&state, key_event, key_tx.clone());
             }
         });
         terminal.draw_web({
@@ -78,7 +81,13 @@ mod web {
                 view(&state, frame);
             }
         });
-        Ok(())
+        loop {
+            if let Ok(x) = rx.try_recv() {
+                let model_state = model.clone();
+                let mut mut_model = model_state.borrow_mut();
+                update(&mut mut_model, x, tx.clone());
+            }
+        }
     }
 }
 

@@ -57,6 +57,7 @@ fn strf_seconds_small(seconds: i64) -> String {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let draw_area = area.unwrap_or(frame.area());
     let instructions;
@@ -93,7 +94,45 @@ fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     }
     frame.render_widget(instructions.right_aligned(), draw_area);
 }
-
+#[cfg(target_arch = "wasm32")]
+fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
+    let draw_area = area.unwrap_or(frame.area());
+    let instructions;
+    match model.current_state {
+        AppState::Base => {
+            instructions = Line::from(vec![
+                "Configure Ground Stations ".into(),
+                "<g> ".blue().bold(),
+                "Configure Satellites ".into(),
+                "<s> ".blue().bold(),
+                "Quit ".into(),
+                "<q> ".blue().bold(),
+            ])
+        }
+        AppState::SatSelect => {
+            instructions = Line::from(vec![
+                "Fetch TLE from Spacetrack ".into(),
+                "<f> ".blue().bold(),
+                "Copy TLE ".into(),
+                "<c> ".blue().bold(),
+                "Close Popup ".into(),
+                "<q> ".blue().bold(),
+            ])
+        }
+        AppState::SatAddition => {
+            instructions = Line::from(vec![
+                "Paste TLE ".into(),
+                "<v> ".blue().bold(),
+                "Close Popup ".into(),
+                "<q> ".blue().bold(),
+            ])
+        }
+        AppState::GSConfig => instructions = Line::from(vec!["".into(), "".blue().bold()]),
+        #[cfg(not(target_arch = "wasm32"))]
+        AppState::SatWaitingFetch => instructions = Line::from(vec!["".into(), "".blue().bold()]),
+    }
+    frame.render_widget(instructions.right_aligned(), draw_area);
+}
 fn strf_seconds(seconds: i64) -> String {
     let working_seconds;
     if seconds < 0 {

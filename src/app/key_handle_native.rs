@@ -46,11 +46,10 @@ pub fn handle_event(model: &Model) -> Result<Option<Message>> {
     }
     Ok(None)
 }
-
 #[cfg(target_arch = "wasm32")]
-pub fn handle_event(model: &mut Model, key_event: KeyEvent) {
-    use super::update;
-
+use std::sync::mpsc::Sender;
+#[cfg(target_arch = "wasm32")]
+pub fn handle_event(model: &Model, key_event: KeyEvent, tx: Sender<Message>) {
     let message;
     match model.current_state {
         AppState::Base => message = handle_key_base(key_event),
@@ -59,8 +58,11 @@ pub fn handle_event(model: &mut Model, key_event: KeyEvent) {
             message = handle_key_sat_addition(key_event, &model);
         }
         AppState::GSConfig => message = handle_key_gs_config(key_event, &model),
+        AppState::SatWaitingFetch => message = None,
     }
-    update(model, message.unwrap());
+    if let Some(x) = message {
+        tx.send(x).unwrap()
+    }
 }
 
 fn handle_key_gs_config(key: event::KeyEvent, model: &Model) -> Option<Message> {
