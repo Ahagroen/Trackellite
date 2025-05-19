@@ -123,12 +123,13 @@ pub fn parse_addsat_msg(model: &mut Model, add_sat_msg: AddSatMsg) -> Option<Mes
         AddSatMsg::PasteTLE => {
             if model.sat_config.add_sat.selected == AddSatSel::TLEBox {
                 let x = model.sat_config.clipboard.get_text();
-                if x.lines().count() <= 3 && x.lines().count() > 0 {
-                    if x.lines().find(|y| y.len() < 70).is_none() {
-                        model.sat_config.add_sat.editing = true;
-                        model.sat_config.add_sat.text = x;
-                        model.sat_config.current_message = CurrentMsg::message("Pasted TLE");
-                    }
+                if x.lines().count() <= 3
+                    && x.lines().count() > 0
+                    && !x.lines().any(|y| y.len() < 70)
+                {
+                    model.sat_config.add_sat.editing = true;
+                    model.sat_config.add_sat.text = x;
+                    model.sat_config.current_message = CurrentMsg::message("Pasted TLE");
                 }
 
                 model.sat_config.current_message = CurrentMsg::error("Unable to paste TLE");

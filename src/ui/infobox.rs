@@ -25,7 +25,7 @@ fn render_pass_block(model: &Model, frame: &mut Frame, draw_area: Rect) {
     frame.render_widget(pass_stat_block, draw_area);
     let satellite = model.current_satellite.as_ref();
     let stations = &model.upcoming_passes;
-    if satellite.is_some() && stations.len() > 0 {
+    if satellite.is_some() && !stations.is_empty() {
         let upcoming_pass = &model.upcoming_passes[0];
         let pointing = satellite.unwrap().satellite.get_look_angle(
             &upcoming_pass.station,

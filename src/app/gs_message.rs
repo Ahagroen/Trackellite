@@ -34,7 +34,7 @@ pub fn parse_gsconfig_msg(model: &mut Model, gsconfig_msg: GSConfigMsg) -> Optio
                                 });
                                 model.station_config.table_state.select_first_column();
                                 return None; //Maybe a popup to edit? or edit live in the line. worth considering the options.
-                            } else if let Some(_) = model.station_config.station_list.get(index) {
+                            } else if model.station_config.station_list.get(index).is_some() {
                                 model.station_config.editing = GSconfigState::CellSelect;
                                 model.station_config.table_state.select_first_column();
                                 return None;
@@ -123,20 +123,20 @@ fn handle_stop_editing(model: &mut Model) -> Option<Message> {
                 model.station_config.current_edit_buffer = "".to_string();
             } else {
                 let value_test = model.station_config.current_edit_buffer.parse::<f64>();
-                let value;
-                match value_test {
-                    Ok(x) => value = x,
+
+                let value = match value_test {
+                    Ok(x) => x,
                     Err(_) => {
                         model.station_config.current_msg =
                             CurrentMsg::error("Unable to parse value");
                         return None;
                     }
-                }
-                if y == 2 && (value > 90.0 || value < -90.0) {
+                };
+                if y == 2 && !(-90.0..=90.0).contains(&value) {
                     model.station_config.current_msg =
                         CurrentMsg::error("Latitude Value out of range");
                     return None;
-                } else if y == 3 && (value > 180.0 || value < -180.0) {
+                } else if y == 3 && !(-180.0..=180.0).contains(&value) {
                     model.station_config.current_msg =
                         CurrentMsg::error("Longitude value out of range");
                     return None;

@@ -67,11 +67,11 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
         .iter()
         .enumerate()
         .filter(|(a, b)| {
-            let next_point = points.get(a.clone() + 1);
-            if next_point.is_none() {
-                false
-            } else {
+            let next_point = points.get(*a + 1);
+            if let Some(pt) = next_point {
                 b.0 < next_point.unwrap().0
+            } else {
+                false
             }
         })
         .count();
@@ -79,11 +79,11 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
         .iter()
         .enumerate()
         .filter(|(a, b)| {
-            let next_point = points.get(a.clone() + 1);
-            if next_point.is_none() {
-                false
+            let next_point = points.get(*a + 1);
+            if let Some(pt) = next_point {
+                b.0 > pt.0
             } else {
-                b.0 > next_point.unwrap().0
+                false
             }
         })
         .count();
@@ -106,17 +106,15 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
                 paths_list.push(dataset);
                 current_start = current_end + 1;
             }
-        } else {
-            if prev.is_some() && prev.unwrap() < i.0 {
-                let dataset = Dataset::default()
-                    .name(working_satellites.satellite.get_name())
-                    .marker(Marker::Braille)
-                    .graph_type(GraphType::Line)
-                    .cyan()
-                    .data(&points[current_start..current_end]);
-                paths_list.push(dataset);
-                current_start = current_end + 1;
-            }
+        } else if prev.is_some() && prev.unwrap() < i.0 {
+            let dataset = Dataset::default()
+                .name(working_satellites.satellite.get_name())
+                .marker(Marker::Braille)
+                .graph_type(GraphType::Line)
+                .cyan()
+                .data(&points[current_start..current_end]);
+            paths_list.push(dataset);
+            current_start = current_end + 1;
         }
         // debug!("current x: {}, last x: {:?}", i.0, prev);
         current_end += 1;

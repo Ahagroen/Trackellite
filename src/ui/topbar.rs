@@ -51,9 +51,8 @@ pub fn view_top_bar(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let met_frame = Block::bordered();
     let met_inner = met_frame.inner(met_time);
     frame.render_widget(met_frame, met_time);
-    if model.upcoming_passes.len() == 0 {
-        let met_text;
-        met_text = vec![
+    if model.upcoming_passes.is_empty() {
+        let met_text = vec![
             Line::from(""),
             Line::from("Please select a satellite and").centered(),
             Line::from("Ground Station for next pass data").centered(),

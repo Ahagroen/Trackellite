@@ -125,16 +125,16 @@ pub struct CurrentMsg {
 
 impl CurrentMsg {
     pub fn error(msg: &str) -> CurrentMsg {
-        return CurrentMsg {
+        CurrentMsg {
             error: true,
             text: msg.to_string(),
-        };
+        }
     }
     pub fn message(msg: &str) -> CurrentMsg {
-        return CurrentMsg {
+        CurrentMsg {
             error: false,
             text: msg.to_string(),
-        };
+        }
     }
 }
 
@@ -295,7 +295,7 @@ pub mod celestrak_date {
     use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
     use serde::{self, Deserialize, Deserializer, Serializer, de::Error};
 
-    const FORMAT: &'static str = "%Y-%m-%d";
+    const FORMAT: &str = "%Y-%m-%d";
 
     // The signature of a serialize_with function must follow the pattern:
     //

@@ -30,13 +30,13 @@ pub fn handle_event(model: &Model) -> Result<Option<Message>> {
                     AppState::Base => return Ok(handle_key_base(key)),
                     AppState::SatSelect => return Ok(handle_key_sat_config(key)),
                     AppState::SatAddition => {
-                        return Ok(handle_key_sat_addition(key, &model));
+                        return Ok(handle_key_sat_addition(key, model));
                     }
-                    AppState::GSConfig => return Ok(handle_key_gs_config(key, &model)),
+                    AppState::GSConfig => return Ok(handle_key_gs_config(key, model)),
                 }
             }
         }
-    } else if let Some(x) = model.upcoming_passes.get(0) {
+    } else if let Some(x) = model.upcoming_passes.first() {
         if x.pass.get_los_datetime().signed_duration_since(Utc::now())
             < TimeDelta::new(-30, 0).unwrap()
         {

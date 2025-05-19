@@ -47,7 +47,7 @@ pub mod cache {
         debug!("Cached TLE's: {:?}", tle_data);
         let mut satellites = vec![];
         for i in tle_data.values() {
-            let data: TLSatellite = from_str(&i).unwrap();
+            let data: TLSatellite = from_str(i).unwrap();
             satellites.push(data)
         }
         Ok(satellites)

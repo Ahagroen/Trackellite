@@ -29,10 +29,10 @@ mod native {
         let mut model = Model::default();
         info!("Loaded Model");
         while !&model.exit {
-            terminal.draw(|f| view(&mut model, f))?;
+            terminal.draw(|f| view(&model, f))?;
             let current_msg = handle_event(&model)?;
-            if current_msg.is_some() {
-                update(&mut model, current_msg.unwrap());
+            if let Some(msg) = current_msg {
+                update(&mut model, msg);
             }
         }
         restore();

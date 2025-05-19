@@ -43,7 +43,7 @@ pub fn view(model: &Model, frame: &mut Frame) {
 fn strf_seconds_small(seconds: i64) -> String {
     let working_seconds;
     if seconds < 0 {
-        working_seconds = seconds * -1
+        working_seconds = -seconds
     } else {
         working_seconds = seconds
     }
@@ -136,7 +136,7 @@ fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
 fn strf_seconds(seconds: i64) -> String {
     let working_seconds;
     if seconds < 0 {
-        working_seconds = seconds * -1
+        working_seconds = -seconds
     } else {
         working_seconds = seconds
     }
@@ -144,5 +144,5 @@ fn strf_seconds(seconds: i64) -> String {
     let hours = (working_seconds % 86400) / 3600;
     let seconds_new = working_seconds % 60;
     let days = working_seconds / 86400;
-    return format!("{} day(s), {}h {}m {}s", days, hours, minutes, seconds_new);
+    format!("{} day(s), {}h {}m {}s", days, hours, minutes, seconds_new)
 }

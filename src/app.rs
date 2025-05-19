@@ -176,7 +176,7 @@ pub fn update(model: &mut Model, message: Message) {
     let message: Cell<Option<Message>> = Cell::new(Some(message));
     while let Some(msg) = message.take() {
         let msg_inner = msg.clone();
-        drop(msg);
+
         match msg_inner {
             Message::Close => {
                 model.exit = true;
@@ -202,14 +202,12 @@ pub fn update(model: &mut Model, message: Message) {
             Message::ToggleGSConfig => {
                 if model.current_state != AppState::GSConfig {
                     model.current_state = AppState::GSConfig;
+                } else if cache_gs(model.station_config.station_list.clone()).is_err() {
+                    model.station_config.current_msg =
+                        CurrentMsg::error("Unable to save Ground Stations");
                 } else {
-                    if cache_gs(model.station_config.station_list.clone()).is_err() {
-                        model.station_config.current_msg =
-                            CurrentMsg::error("Unable to save Ground Stations");
-                    } else {
-                        model.current_state = AppState::Base;
-                        message.set(Some(Message::PropagatePasses))
-                    }
+                    model.current_state = AppState::Base;
+                    message.set(Some(Message::PropagatePasses))
                 }
             }
             Message::GSConfigMsg(gsconfig_msg) => {
@@ -225,7 +223,7 @@ pub fn update(model: &mut Model, message: Message) {
                         .map(|x| x.station.clone())
                         .collect();
                     let mut passes: Vec<TLPass> = vec![];
-                    if current_stations.len() == 0 || model.current_satellite.is_none() {
+                    if current_stations.is_empty() || model.current_satellite.is_none() {
                     } else {
                         for i in current_stations {
                             passes.append(
@@ -237,7 +235,7 @@ pub fn update(model: &mut Model, message: Message) {
                                 )
                                 .iter()
                                 .map(|x| TLPass {
-                                    pass: x.clone(),
+                                    pass: *x,
                                     station: i.clone(),
                                 })
                                 .collect(),
