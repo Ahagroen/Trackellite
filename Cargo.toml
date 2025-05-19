@@ -1,6 +1,6 @@
 [package]
-name = "orbit-track"
-version = "0.1.0"
+name = "trackellite"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]

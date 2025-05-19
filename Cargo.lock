@@ -1156,36 +1156,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
-name = "orbit-track"
-version = "0.1.0"
-dependencies = [
- "arboard",
- "chrono",
- "color-eyre",
- "console_error_panic_hook",
- "crossterm 0.29.0",
- "directories",
- "dotenv",
- "ehttp",
- "futures",
- "lazy_static",
- "ratatui",
- "ratzilla",
- "serde",
- "serde-wasm-bindgen",
- "serde_json",
- "sky_track",
- "tracing",
- "tracing-error",
- "tracing-subscriber",
- "tracing-web",
- "ureq 3.0.11",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
-]
-
-[[package]]
 name = "overload"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1859,6 +1829,36 @@ dependencies = [
  "tracing-core",
  "tracing-subscriber",
  "wasm-bindgen",
+ "web-sys",
+]
+
+[[package]]
+name = "trackellite"
+version = "1.0.0"
+dependencies = [
+ "arboard",
+ "chrono",
+ "color-eyre",
+ "console_error_panic_hook",
+ "crossterm 0.29.0",
+ "directories",
+ "dotenv",
+ "ehttp",
+ "futures",
+ "lazy_static",
+ "ratatui",
+ "ratzilla",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "sky_track",
+ "tracing",
+ "tracing-error",
+ "tracing-subscriber",
+ "tracing-web",
+ "ureq 3.0.11",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
 ]
 
