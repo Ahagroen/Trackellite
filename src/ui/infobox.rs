@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use chrono::Utc;
 use ratatui::{
     Frame,
@@ -78,10 +76,7 @@ fn render_sat_block(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
     let inner_area = sat_stat_block.inner(draw_area);
     frame.render_widget(sat_stat_block, draw_area);
     if let Some(x) = model.current_satellite.as_ref() {
-        let current_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
+        let current_time = Utc::now().timestamp();
         let base_offset = current_time - x.satellite.get_epoch().timestamp();
         let lla = x.satellite.get_sub_point(base_offset);
         let apo_peri = x.satellite.get_apogee_perigee();

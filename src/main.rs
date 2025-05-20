@@ -45,8 +45,10 @@ mod web {
     use std::{cell::RefCell, io, rc::Rc};
 
     use ratatui::Terminal;
-    use ratzilla::{CanvasBackend, WebRenderer};
+    use ratzilla::{CanvasBackend, DomBackend, WebRenderer};
     use tracing::info;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen::prelude::Closure;
 
     use crate::app::update;
     use crate::utils::web::initialize_logging;
@@ -56,7 +58,8 @@ mod web {
     fn setup() -> Result<Terminal<CanvasBackend>, io::Error> {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         let backend = CanvasBackend::new()?;
-        let terminal = Terminal::new(backend)?;
+        let mut terminal = Terminal::new(backend)?;
+        terminal.autoresize()?;
         Ok(terminal)
     }
     pub fn run() -> Result<()> {
@@ -81,13 +84,21 @@ mod web {
                 view(&state, frame);
             }
         });
-        loop {
+        let model_state = model.clone();
+        let callback = Closure::<dyn Fn()>::new(move || {
             if let Ok(x) = rx.try_recv() {
-                let model_state = model.clone();
                 let mut mut_model = model_state.borrow_mut();
                 update(&mut mut_model, x, tx.clone());
             }
-        }
+        });
+        let _ = web_sys::window()
+            .unwrap()
+            .set_interval_with_callback_and_timeout_and_arguments_0(
+                callback.as_ref().unchecked_ref(),
+                50,
+            );
+        callback.forget(); //leaks memory
+        Ok(())
     }
 }
 

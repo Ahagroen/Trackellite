@@ -1,5 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
+use chrono::Utc;
 use ratatui::{
     Frame,
     layout::{Constraint, Flex, Layout, Position, Rect},
@@ -240,10 +239,7 @@ fn render_sat_list_details(model: &Model, frame: &mut Frame<'_>, detail_area: Re
         };
         match current_sat {
             Some(sat) => {
-                let current_time = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs() as i64;
+                let current_time = Utc::now().timestamp();
                 let base_offset = current_time - sat.satellite.get_epoch().timestamp();
                 details = Paragraph::new(format!(
                     "Satellite Name: {}\nSatellite Norad ID: {}\nSatellite Catelog ID: {}\nSatellite Country: {}\nSatellite Launch Date: {}\nCurrent TLE age: {}\n",

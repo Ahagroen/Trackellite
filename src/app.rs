@@ -19,10 +19,8 @@ use std::sync::mpsc::Sender;
 #[cfg(target_arch = "wasm32")]
 pub fn update(model: &mut Model, message: Message, tx: Sender<Message>) {
     use file_cache::cache::{cache_sup_data, cache_tle, get_sat_cache};
-    use ratatui::widgets::ListState;
     use sky_track::Satellite;
     use wasm_bindgen::{JsCast, prelude::Closure};
-    use web_sys::js_sys::Intl::get_canonical_locales;
 
     use crate::structs::SatSelection;
 
@@ -78,6 +76,7 @@ pub fn update(model: &mut Model, message: Message, tx: Sender<Message>) {
                         .filter(|x| x.active)
                         .map(|x| x.station.clone())
                         .collect();
+
                     let mut passes: Vec<TLPass> = vec![];
                     if current_stations.len() == 0 || model.current_satellite.is_none() {
                     } else {
@@ -100,23 +99,23 @@ pub fn update(model: &mut Model, message: Message, tx: Sender<Message>) {
                         for i in &passes {
                             debug!("{:?}", i)
                         }
+                        passes.sort_by(|a, b| a.pass.get_aos().cmp(&b.pass.get_aos()));
+                        info!("Updated Passes!");
+                        model.upcoming_passes = passes;
+                        let tx_clone = tx.clone();
+                        let callback = Closure::wrap(Box::new(move || {
+                            tx_clone.send(Message::UpdatePass).unwrap()
+                        })
+                            as Box<dyn FnMut()>);
+                        let _ = web_sys::window()
+                            .unwrap()
+                            .set_timeout_with_callback_and_timeout_and_arguments_0(
+                                callback.as_ref().unchecked_ref(),
+                                (model.upcoming_passes[0].pass.get_los() + 30
+                                    - Utc::now().timestamp())
+                                    as i32,
+                            );
                     }
-                    passes.sort_by(|a, b| a.pass.get_aos().cmp(&b.pass.get_aos()));
-                    info!("Updated Passes!");
-                    model.upcoming_passes = passes;
-                    let tx_clone = tx.clone();
-                    let callback =
-                        Closure::wrap(
-                            Box::new(move || tx_clone.send(Message::UpdatePass).unwrap())
-                                as Box<dyn FnMut()>,
-                        );
-                    let _ = web_sys::window()
-                        .unwrap()
-                        .set_timeout_with_callback_and_timeout_and_arguments_0(
-                            callback.as_ref().unchecked_ref(),
-                            (model.upcoming_passes[0].pass.get_los() + 30 - Utc::now().timestamp())
-                                as i32,
-                        );
                 }
             }
             Message::UpdatePass => message.set(Some(Message::PropagatePasses)),

@@ -32,6 +32,7 @@ use ratatui::crossterm::event::KeyCode;
 use ratzilla::event::KeyCode;
 
 use tracing::debug;
+use tracing::info;
 use tracing::warn;
 
 use crate::app::file_cache::cache::get_gs_cache;
@@ -169,6 +170,7 @@ impl Default for GSconfiguration {
             station_list = stations.unwrap();
             current_message = CurrentMsg::message("")
         }
+        info!("Got Ground Station Data");
         GSconfiguration {
             station_list,
             table_state: TableState::default(),
@@ -219,6 +221,7 @@ impl Default for SatSelection {
             };
             satellites = sat_list.unwrap();
         }
+        info!("Loaded Satellites");
         SatSelection {
             satellite_list: satellites,
             list_state: ListState::default(),

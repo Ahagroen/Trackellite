@@ -39,6 +39,11 @@ pub mod native {
 
     pub fn initialize_logging() -> Result<()> {
         let dir = get_data_dir();
+        if !dir.exists() {
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .create(dir.clone())?
+        }
         let log_file = std::fs::File::create(dir.join("outlog.log"))?;
         Subscriber::builder()
             .with_writer(Mutex::new(log_file))

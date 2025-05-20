@@ -1,5 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
+use chrono::Utc;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -45,10 +44,7 @@ fn render_no_sat_text(frame: &mut Frame<'_>, draw_area: Rect) {
 }
 
 fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
-    let current_time = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let current_time = Utc::now().timestamp();
     let working_satellites = model.current_satellite.as_ref().unwrap();
     let base_offset = current_time - working_satellites.satellite.get_epoch().timestamp();
     let current_pos = working_satellites.satellite.get_sub_point(base_offset);
@@ -69,7 +65,7 @@ fn render_tracks(model: &Model, frame: &mut Frame<'_>, draw_area: Rect) {
         .filter(|(a, b)| {
             let next_point = points.get(*a + 1);
             if let Some(pt) = next_point {
-                b.0 < next_point.unwrap().0
+                b.0 < pt.0
             } else {
                 false
             }

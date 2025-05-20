@@ -128,7 +128,6 @@ fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
             ])
         }
         AppState::GSConfig => instructions = Line::from(vec!["".into(), "".blue().bold()]),
-        #[cfg(not(target_arch = "wasm32"))]
         AppState::SatWaitingFetch => instructions = Line::from(vec!["".into(), "".blue().bold()]),
     }
     frame.render_widget(instructions.right_aligned(), draw_area);
