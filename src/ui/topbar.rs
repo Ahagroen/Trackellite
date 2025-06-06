@@ -13,7 +13,7 @@ use super::strf_seconds_small;
 pub fn view_top_bar(model: &Model, frame: &mut Frame, area: Option<Rect>) {
     let draw_area = area.unwrap_or(frame.area());
     let [realtime, center, met_time] = Layout::horizontal([
-        Constraint::Length(40),
+        Constraint::Length(55),
         Constraint::Fill(1),
         Constraint::Length(55),
     ])
