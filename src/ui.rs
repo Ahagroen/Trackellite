@@ -105,8 +105,6 @@ fn view_app_border(model: &Model, frame: &mut Frame, area: Option<Rect>) {
                 "<g> ".blue().bold(),
                 "Configure Satellites ".into(),
                 "<s> ".blue().bold(),
-                "Quit ".into(),
-                "<q> ".blue().bold(),
             ])
         }
         AppState::SatSelect => {
