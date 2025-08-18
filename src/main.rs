@@ -55,9 +55,9 @@ mod web {
     use crate::{app::key_handle_native::handle_event, structs::Model, ui::view};
     use color_eyre::Result;
 
-    fn setup() -> Result<Terminal<CanvasBackend>, io::Error> {
+    fn setup() -> Result<Terminal<DomBackend>, io::Error> {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        let backend = CanvasBackend::new()?;
+        let backend = DomBackend::new()?;
         let mut terminal = Terminal::new(backend)?;
         terminal.autoresize()?;
         Ok(terminal)
