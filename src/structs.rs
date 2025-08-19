@@ -117,6 +117,7 @@ pub enum GSConfigMsg {
     Backspace,
     StopEditing,
     LetterTyped(KeyCode),
+    Activate,
 }
 
 pub struct CurrentMsg {
@@ -167,7 +168,12 @@ impl Default for GSconfiguration {
             };
             station_list = vec![];
         } else {
-            station_list = stations.unwrap();
+            station_list = stations
+                .unwrap()
+                .iter()
+                .filter(|x| x.station.name != "")
+                .cloned()
+                .collect();
             current_message = CurrentMsg::message("")
         }
         info!("Got Ground Station Data");
@@ -232,7 +238,7 @@ impl Default for SatSelection {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum AppState {
     Base,
     SatSelect,

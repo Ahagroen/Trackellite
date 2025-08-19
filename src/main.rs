@@ -14,7 +14,7 @@ mod native {
     use ratatui::{init, restore};
     use tracing::info;
 
-    use crate::app::key_handle_native::handle_event;
+    use crate::app::key_handle::handle_event;
     use crate::app::update;
     use crate::structs::Model;
     use crate::ui::view;
@@ -52,7 +52,7 @@ mod web {
 
     use crate::app::update;
     use crate::utils::web::initialize_logging;
-    use crate::{app::key_handle_native::handle_event, structs::Model, ui::view};
+    use crate::{app::key_handle::handle_event, structs::Model, ui::view};
     use color_eyre::Result;
 
     fn setup() -> Result<Terminal<DomBackend>, io::Error> {

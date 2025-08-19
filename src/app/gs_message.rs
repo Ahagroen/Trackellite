@@ -33,10 +33,12 @@ pub fn parse_gsconfig_msg(model: &mut Model, gsconfig_msg: GSConfigMsg) -> Optio
                                     active: false,
                                 });
                                 model.station_config.table_state.select_first_column();
+                                model.station_config.table_state.scroll_right_by(1);
                                 return None; //Maybe a popup to edit? or edit live in the line. worth considering the options.
                             } else if model.station_config.station_list.get(index).is_some() {
                                 model.station_config.editing = GSconfigState::CellSelect;
                                 model.station_config.table_state.select_first_column();
+                                model.station_config.table_state.scroll_right_by(1);
                                 return None;
                             };
                         };
@@ -50,10 +52,20 @@ pub fn parse_gsconfig_msg(model: &mut Model, gsconfig_msg: GSConfigMsg) -> Optio
                 }
             }
             ListMovement::Left => {
+                if let Some(x) = model.station_config.table_state.selected_column() {
+                    if x == 1 {
+                        return None;
+                    }
+                }
                 model.station_config.table_state.scroll_left_by(1);
                 None
             }
             ListMovement::Right => {
+                if let Some(x) = model.station_config.table_state.selected_column() {
+                    if x == 4 {
+                        return None;
+                    }
+                }
                 model.station_config.table_state.scroll_right_by(1);
                 None
             }
@@ -100,6 +112,19 @@ pub fn parse_gsconfig_msg(model: &mut Model, gsconfig_msg: GSConfigMsg) -> Optio
                         }
                     }
                     _ => {}
+                }
+            }
+            None
+        }
+        GSConfigMsg::Activate => {
+            if let Some(index) = model.station_config.table_state.selected() {
+                if index != model.station_config.station_list.len() {
+                    model
+                        .station_config
+                        .station_list
+                        .get_mut(index)
+                        .unwrap()
+                        .active = !model.station_config.station_list.get(index).unwrap().active
                 }
             }
             None
@@ -188,14 +213,6 @@ fn handle_cell_select(model: &mut Model) {
     if let Some(index) = model.station_config.table_state.selected() {
         if let Some(column) = model.station_config.table_state.selected_column() {
             match column {
-                0 => {
-                    model
-                        .station_config
-                        .station_list
-                        .get_mut(index)
-                        .unwrap()
-                        .active = !model.station_config.station_list.get(index).unwrap().active
-                }
                 1..5 => {
                     model.station_config.editing = GSconfigState::CellEdit;
                 }

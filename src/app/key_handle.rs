@@ -91,6 +91,7 @@ fn handle_key_gs_config(key: event::KeyEvent, model: &Model) -> Option<Message> 
             KeyCode::Enter => Some(Message::GSConfigMsg(GSConfigMsg::ListMovement(
                 ListMovement::Select,
             ))),
+            KeyCode::Char('a') => Some(Message::GSConfigMsg(GSConfigMsg::Activate)),
             _ => None,
         },
         GSconfigState::CellEdit => match key.code {

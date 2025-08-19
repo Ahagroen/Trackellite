@@ -8,7 +8,7 @@ use std::cell::Cell;
 use tracing::{debug, info};
 mod addsat_message;
 mod gs_message;
-pub mod key_handle_native;
+pub mod key_handle;
 mod satlist_message;
 use crate::structs::{AppState, CurrentMsg, Message, Model, TLPass};
 pub mod file_cache;
